@@ -1,14 +1,14 @@
 """
 python-services/event-api/src/main.py
 
-FastAPI entrypoint. In Adım 1 (infra) the API exposes only:
-  - GET /healthz    liveness (always 200 while process is up)
-  - GET /readyz     readiness (checks DB/Redis/Kafka/MinIO)
-  - GET /metrics    Prometheus (scaffolded; populated in step 20)
+FastAPI entrypoint. From Adım 2 onwards:
+  - GET  /healthz                    liveness
+  - GET  /readyz                     readiness (DB/Redis/Kafka/MinIO)
+  - GET  /metrics                    Prometheus scrape (populated step 20)
+  - *    /api/v1/cameras             cameras CRUD + X-Operator-Name audit
 
-Adım 2 adds the Camera CRUD + X-Operator-Name middleware + router
-wiring; all of that plugs into the app factory here without changing
-the lifecycle.
+Later adımlar plug their routers into this factory without changing the
+lifespan or middleware wiring.
 """
 
 from __future__ import annotations
@@ -24,13 +24,15 @@ from shared import db, kafka_client, minio_client, redis_client
 from shared.config import settings
 from shared.logging import configure_logging, get_logger
 from shared.schemas import HealthStatus
+from src.middleware.operator import OperatorContextMiddleware
+from src.routers import cameras as cameras_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 logger = get_logger(__name__)
 
-API_VERSION = "0.1.0"
+API_VERSION = "0.2.0"
 
 
 @asynccontextmanager
@@ -44,7 +46,6 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
         cors=settings.cors_origins_list,
     )
 
-    # Eagerly open the Kafka producer so readyz reflects true broker state.
     try:
         await kafka_client.get_producer()
     except Exception as exc:  # noqa: BLE001 — startup should not crash hard
@@ -70,25 +71,26 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS — LAN origins only. Tightening happens at nginx in prod.
+    # --- CORS (LAN-only; nginx tightens further in prod) -------------------
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*", "X-Operator-Name"],
-        expose_headers=["X-Operator-Name"],
+        allow_headers=["*", "X-Operator-Name", "X-Trace-Id"],
+        expose_headers=["X-Operator-Name", "X-Trace-Id"],
     )
 
-    # ---- Ops routes (no router file — trivial) -----------------------------
+    # --- X-Operator-Name + trace_id capture/enforcement --------------------
+    app.add_middleware(OperatorContextMiddleware)
+
+    # --- Ops routes (no router file — trivial) -----------------------------
     @app.get("/healthz", tags=["ops"])
     async def healthz() -> dict[str, str]:
-        """Liveness: returns 200 as long as the process is up."""
         return {"status": "ok", "service": "event-api", "version": API_VERSION}
 
     @app.get("/readyz", response_model=HealthStatus, tags=["ops"])
     async def readyz() -> HealthStatus:
-        """Readiness: checks every upstream dependency."""
         checks = {
             "postgres": await db.ping(),
             "redis": await redis_client.ping(),
@@ -96,9 +98,9 @@ def create_app() -> FastAPI:
             "minio": await minio_client.ping(),
         }
         healthy = all(checks.values())
-        status = "ok" if healthy else ("degraded" if any(checks.values()) else "down")
+        status_ = "ok" if healthy else ("degraded" if any(checks.values()) else "down")
         return HealthStatus(
-            status=status,
+            status=status_,
             version=API_VERSION,
             service="event-api",
             checks=checks,
@@ -107,13 +109,15 @@ def create_app() -> FastAPI:
 
     @app.get("/metrics", tags=["ops"])
     async def metrics() -> Response:
-        """Prometheus scrape endpoint — populated in step 20."""
         body = (
             "# HELP parkguard_event_api_up 1 if the event-api is up.\n"
             "# TYPE parkguard_event_api_up gauge\n"
             "parkguard_event_api_up 1\n"
         )
         return Response(content=body, media_type="text/plain; version=0.0.4")
+
+    # --- Feature routers ---------------------------------------------------
+    app.include_router(cameras_router.router)
 
     return app
 
