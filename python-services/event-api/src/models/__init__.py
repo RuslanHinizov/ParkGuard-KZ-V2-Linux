@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from src.models.audit_log import AuditLog
 from src.models.camera import Camera
+from src.models.zone import Zone
 
 __all__ = [
     "AuditLog",
     "Camera",
+    "Zone",
 ]

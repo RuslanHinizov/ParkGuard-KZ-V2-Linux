@@ -26,13 +26,14 @@ from shared.logging import configure_logging, get_logger
 from shared.schemas import HealthStatus
 from src.middleware.operator import OperatorContextMiddleware
 from src.routers import cameras as cameras_router
+from src.routers import zones as zones_router
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 logger = get_logger(__name__)
 
-API_VERSION = "0.2.0"
+API_VERSION = "0.4.0"
 
 
 @asynccontextmanager
@@ -118,6 +119,8 @@ def create_app() -> FastAPI:
 
     # --- Feature routers ---------------------------------------------------
     app.include_router(cameras_router.router)
+    app.include_router(zones_router.camera_zones)
+    app.include_router(zones_router.zones)
 
     return app
 

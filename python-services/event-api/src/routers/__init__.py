@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from src.routers import cameras
+from src.routers import cameras, zones
 
-__all__ = ["cameras"]
+__all__ = ["cameras", "zones"]

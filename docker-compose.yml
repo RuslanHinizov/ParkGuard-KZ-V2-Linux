@@ -317,6 +317,48 @@ services:
     # CPU affinity per spec §13.2 (applied on linux host; ignored on WSL)
     cpuset: "12-19"
 
+  violation-service:
+    build:
+      context: .
+      dockerfile: python-services/violation-service/Dockerfile
+    image: parkguard/violation-service:dev
+    container_name: parkguard_violation_service
+    hostname: violation-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      VIOLATION_DEFAULT_THRESHOLD_SECONDS: ${VIOLATION_DEFAULT_THRESHOLD_SECONDS:-20}
+      VIOLATION_EXIT_CONFIRM_SECONDS: ${VIOLATION_EXIT_CONFIRM_SECONDS:-10}
+      VIOLATION_COOLDOWN_SECONDS: ${VIOLATION_COOLDOWN_SECONDS:-10}
+      VIOLATION_EMBEDDING_MATCH_THRESHOLD: ${VIOLATION_EMBEDDING_MATCH_THRESHOLD:-0.82}
+    ports:
+      - "127.0.0.1:9200:9200"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9200/healthz',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [parkguard_net]
+    logging: *common-logging
+    cpuset: "0-7"   # spec §13.2 (violation-service gets dedicated cores)
+
   # --------------------------------------------------------------------------
   # GPU pipeline (Adım 3+). Gated behind the `gpu` profile so the rest of the
   # stack runs on CPU-only dev boxes (Windows/WSL) without failure.
