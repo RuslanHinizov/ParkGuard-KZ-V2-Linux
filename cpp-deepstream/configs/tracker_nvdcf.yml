@@ -1,0 +1,55 @@
+# =============================================================================
+# cpp-deepstream/configs/tracker_nvdcf.yml
+# -----------------------------------------------------------------------------
+# NvDCF Performance-mode config for nvtracker. Accuracy/perf tradeoff suits
+# 8-12 concurrent 15fps/720p streams with YOLO11s front-end (spec §7.1).
+#
+# Upstream sample:
+#   /opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml
+# =============================================================================
+
+%YAML 1.2
+---
+BaseConfig:
+  minDetectorConfidence: 0.4   # drop weak detections before association
+
+TargetManagement:
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 150
+  enableBboxUnClipping: 1
+  enableReAssoc: 1
+  minIouDiff4NewTarget: 0.3
+  minTrackerConfidence: 0.20
+  probationAge: 3
+  maxShadowTrackingAge: 30
+  earlyTerminationAge: 1
+
+TrajectoryManagement:
+  useUniqueID: 1
+
+DataAssociator:
+  dataAssociatorType: 0   # 0 = Hungarian
+  associationMatcherType: 1
+  checkClassMatch: 1
+  minMatchingScore4Overall: 0.0
+  minMatchingScore4SizeSimilarity: 0.6
+  minMatchingScore4Iou: 0.1
+  thresholdMahalanobisDistSqr: 9.4877
+
+StateEstimator:
+  stateEstimatorType: 2   # Kalman + DCF
+  processNoiseVar4Loc: 2.0
+  processNoiseVar4Vel: 0.1
+  processNoiseVar4Size: 1.0
+  measurementNoiseVar4Detector: 4.0
+  measurementNoiseVar4Tracker: 16.0
+
+VisualTracker:
+  visualTrackerType: 1    # NvDCF
+  useColorNames: 1
+  useHog: 1
+  featureImgSizeLevel: 2
+  featureFocusOffsetFactor_y: -0.2
+  filterLr: 0.15
+  filterChannelWeightsLr: 0.22
+  gaussianSigma: 0.75

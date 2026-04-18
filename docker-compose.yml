@@ -317,7 +317,50 @@ services:
     # CPU affinity per spec §13.2 (applied on linux host; ignored on WSL)
     cpuset: "12-19"
 
+  # --------------------------------------------------------------------------
+  # GPU pipeline (Adım 3+). Gated behind the `gpu` profile so the rest of the
+  # stack runs on CPU-only dev boxes (Windows/WSL) without failure.
+  # Enable with:  docker compose --profile gpu up -d deepstream
+  # --------------------------------------------------------------------------
+  deepstream:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: cpp-deepstream/Dockerfile
+    image: parkguard/deepstream:dev
+    container_name: parkguard_deepstream
+    hostname: deepstream
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video,graphics
+      GST_DEBUG: ${GST_DEBUG:-2}
+    # RTSP cameras are typically LAN-reachable; host networking avoids NAT.
+    network_mode: "host"
+    volumes:
+      - ./cpp-deepstream/models:/opt/parkguard/models:ro
+      - ./cpp-deepstream/configs:/opt/parkguard/configs:ro
+      - ./cpp-deepstream/configs/runtime.yml:/etc/parkguard/runtime.yml:ro
+      - snapshots:/shared/snapshots
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9100/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
+    logging: *common-logging
+
   # ---- services below are scaffolded at later delivery steps ----
   # violation-service, plate-service, snapshot-consumer,
-  # penalty-card-service, deepstream-app, frontend, nginx,
+  # penalty-card-service, frontend, nginx,
   # prometheus, grafana, loki, alertmanager, node-exporter
