@@ -1,0 +1,47 @@
+# =============================================================================
+# cpp-deepstream/configs/sgie_osnet_reid.txt
+# -----------------------------------------------------------------------------
+# Secondary nvinfer — OSNet_x0_25 vehicle ReID, 128-D feature vector.
+#
+# Operates on PGIE (gie-unique-id=1) vehicle detections. We intentionally
+# set `output-tensor-meta=1` so the 128-float feature vector is attached
+# as NvDsInferTensorMeta on each object; the pad probe pulls that out,
+# base64-encodes it, and emits it inside the Kafka detection message.
+#
+# `network-type=100` = custom (not classifier, not detector). No
+# labelfile, no cluster-mode.
+#
+# Engine is built on the HOST against this ONNX (scripts/build_tensorrt_engines.sh)
+# because Blackwell (sm_120) engines are architecture-locked (spec §7.4).
+#
+# `interval=1` = run SGIE every other frame. 25 FPS per stream × 8–12
+# cams × 128-D OSNet_x0_25 still fits comfortably on RTX 5070 Ti;
+# dropping to interval=2 is the first dial if we see GPU pressure
+# (spec §16.5 OOM playbook).
+# =============================================================================
+
+[property]
+gpu-id=0
+net-scale-factor=0.003921568627450980
+model-color-format=0
+model-engine-file=../models/osnet_x0_25_veh_fp16.engine
+onnx-file=../models/osnet_x0_25_veh.onnx
+infer-dims=3;256;128
+batch-size=16
+## 0=FP32, 1=INT8, 2=FP16
+network-mode=2
+gie-unique-id=2
+process-mode=2
+operate-on-gie-id=1
+operate-on-class-ids=2;3;5;7
+classifier-async-mode=0
+classifier-threshold=0.0
+is-classifier=0
+output-tensor-meta=1
+network-type=100
+num-detected-classes=0
+input-object-min-width=32
+input-object-min-height=32
+interval=1
+maintain-aspect-ratio=1
+output-blob-names=output

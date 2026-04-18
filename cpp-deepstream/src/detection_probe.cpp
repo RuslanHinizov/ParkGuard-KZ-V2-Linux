@@ -5,6 +5,7 @@
 
 #include <gstnvdsmeta.h>
 #include <nvdsmeta.h>
+#include <nvdsinfer.h>
 
 #if __has_include(<nlohmann/json.hpp>)
 #include <nlohmann/json.hpp>
@@ -13,10 +14,15 @@
 #endif
 
 #include <chrono>
+#include <cmath>
+#include <cstring>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <utility>
+#include <vector>
+
+#include "base64.hpp"
 
 namespace parkguard {
 
@@ -61,14 +67,61 @@ std::uint64_t now_wall_ms() {
         duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
 }
 
+// Pull the first output-layer float* from an SGIE-attached tensor meta
+// into a caller-owned vector, L2-normalised. Returns an empty vector if
+// the object has no tensor meta (e.g. SGIE interval skipped this frame)
+// or if the dimensions don't match the configured embedding_dim.
+std::vector<float> extract_embedding(NvDsObjectMeta* om, int expected_dim) {
+    if (!om || expected_dim <= 0) return {};
+    for (NvDsMetaList* l = om->obj_user_meta_list; l; l = l->next) {
+        auto* user = static_cast<NvDsUserMeta*>(l->data);
+        if (!user) continue;
+        if (user->base_meta.meta_type != NVDSINFER_TENSOR_OUTPUT_META) continue;
+
+        auto* tmeta = static_cast<NvDsInferTensorMeta*>(user->user_meta_data);
+        if (!tmeta || tmeta->num_output_layers == 0) continue;
+
+        const NvDsInferLayerInfo& layer = tmeta->output_layers_info[0];
+        if (layer.dataType != FLOAT) continue;
+
+        // Flatten total element count across layer dims.
+        std::size_t total = 1;
+        for (unsigned d = 0; d < layer.inferDims.numDims; ++d) {
+            total *= static_cast<std::size_t>(layer.inferDims.d[d]);
+        }
+        if (static_cast<int>(total) != expected_dim) continue;
+
+        const auto* src = static_cast<const float*>(tmeta->out_buf_ptrs_host
+                                                        ? tmeta->out_buf_ptrs_host[0]
+                                                        : nullptr);
+        if (!src) continue;
+
+        std::vector<float> out(expected_dim);
+        std::memcpy(out.data(), src, expected_dim * sizeof(float));
+
+        // L2 normalise — consumers use cosine similarity.
+        double sum_sq = 0.0;
+        for (float f : out) sum_sq += static_cast<double>(f) * f;
+        const double norm = std::sqrt(sum_sq);
+        if (norm > 1e-6) {
+            const float inv = static_cast<float>(1.0 / norm);
+            for (float& f : out) f *= inv;
+        }
+        return out;
+    }
+    return {};
+}
+
 }  // namespace
 
 DetectionProbe::DetectionProbe(std::shared_ptr<KafkaProducer> producer,
                                std::string                    topic,
-                               CameraIndex                    index)
+                               CameraIndex                    index,
+                               int                            expected_embedding_dim)
     : producer_(std::move(producer)),
       topic_(std::move(topic)),
-      index_(std::move(index)) {}
+      index_(std::move(index)),
+      expected_embedding_dim_(expected_embedding_dim) {}
 
 gulong DetectionProbe::install(GstPad* pad) {
     return gst_pad_add_probe(
@@ -129,7 +182,14 @@ GstPadProbeReturn DetectionProbe::on_buffer(GstPadProbeInfo* info) {
             obj["centroid"]    = {
                 {"x", static_cast<int>(r.left + r.width  / 2.0)},
                 {"y", static_cast<int>(r.top  + r.height / 2.0)}};
-            obj["embedding_b64"] = nullptr;  // populated from Adım 6 onwards
+            auto embedding = extract_embedding(om, expected_embedding_dim_);
+            if (!embedding.empty()) {
+                obj["embedding_b64"] =
+                    base64_encode(embedding.data(), embedding.size());
+                embeddings_extracted_.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                obj["embedding_b64"] = nullptr;
+            }
             envelope["objects"].push_back(std::move(obj));
             ++det_count;
         }

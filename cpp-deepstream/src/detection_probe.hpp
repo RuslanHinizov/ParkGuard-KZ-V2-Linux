@@ -50,13 +50,20 @@ class DetectionProbe {
 public:
     DetectionProbe(std::shared_ptr<KafkaProducer> producer,
                    std::string topic,
-                   CameraIndex index);
+                   CameraIndex index,
+                   int         expected_embedding_dim = 0);
 
     // Install the probe on the given pad (usually the tracker's src pad).
     // Returns the probe id (non-zero on success).
     gulong install(GstPad* pad);
 
     const CameraIndex& index() const noexcept { return index_; }
+
+    // Number of objects whose OSNet embedding was extracted/encoded this
+    // session. Surfaced to /metrics for fleet-level monitoring.
+    std::uint64_t embeddings_extracted() const noexcept {
+        return embeddings_extracted_.load(std::memory_order_relaxed);
+    }
 
 private:
     static GstPadProbeReturn trampoline(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
@@ -65,6 +72,8 @@ private:
     std::shared_ptr<KafkaProducer> producer_;
     std::string                    topic_;
     CameraIndex                    index_;
+    int                            expected_embedding_dim_{0};
+    std::atomic<std::uint64_t>     embeddings_extracted_{0};
 };
 
 }  // namespace parkguard

@@ -15,6 +15,14 @@ muxer:
 pgie:
   config_file: /opt/parkguard/configs/pgie_yolo11s.txt
 
+# SGIE ReID (Adım 6) — leave `enabled: false` for the 1-camera MVP.
+# Flip to true after `scripts/build_tensorrt_engines.sh` has produced
+# models/osnet_x0_25_veh_fp16.engine on the deployment host.
+sgie:
+  enabled: false
+  config_file: /opt/parkguard/configs/sgie_osnet_reid.txt
+  embedding_dim: 128
+
 tracker:
   config_file: /opt/parkguard/configs/tracker_nvdcf.yml
   ll_lib: /opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so

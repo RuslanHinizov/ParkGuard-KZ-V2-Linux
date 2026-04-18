@@ -59,6 +59,7 @@ private:
     GstElement* pipeline_{nullptr};
     GstElement* streammux_{nullptr};
     GstElement* pgie_{nullptr};
+    GstElement* sgie_{nullptr};     // nullable; only built when cfg.sgie.enabled
     GstElement* tracker_{nullptr};
     GstElement* sink_{nullptr};
 

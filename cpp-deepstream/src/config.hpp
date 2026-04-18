@@ -56,6 +56,14 @@ struct PgieCfg {
     std::string config_file;
 };
 
+// SGIE is optional — Adım 3 MVP runs PGIE + tracker only; Adım 6
+// flips `enabled: true` and points `config_file` at sgie_osnet_reid.txt.
+struct SgieCfg {
+    bool        enabled{false};
+    std::string config_file;
+    int         embedding_dim{128};
+};
+
 struct TrackerCfg {
     std::string config_file;
     std::string ll_lib{"/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so"};
@@ -78,6 +86,7 @@ struct HealthCfg {
 struct RuntimeCfg {
     MuxerCfg                  muxer;
     PgieCfg                   pgie;
+    SgieCfg                   sgie;
     TrackerCfg                tracker;
     KafkaCfg                  kafka;
     HealthCfg                 health;

@@ -92,6 +92,11 @@ void HealthServer::run() {
             o << "parkguard_ds_produce_fails_total{camera=\"" << idx.id_by_pad[i] << "\"} "
               << s.produce_fails.load() << "\n";
         }
+        o << "# HELP parkguard_ds_embeddings_extracted_total "
+             "Objects with an OSNet ReID embedding attached.\n";
+        o << "# TYPE parkguard_ds_embeddings_extracted_total counter\n";
+        o << "parkguard_ds_embeddings_extracted_total "
+          << probe_.embeddings_extracted() << "\n";
         res.set_content(o.str(), "text/plain; version=0.0.4");
     });
 

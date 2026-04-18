@@ -44,6 +44,16 @@ RuntimeCfg load_runtime_cfg(const std::string& path) {
 
     c.pgie.config_file = req<std::string>(root["pgie"], "config_file");
 
+    if (auto s = root["sgie"]) {
+        c.sgie.enabled       = s["enabled"].as<bool>(c.sgie.enabled);
+        if (c.sgie.enabled) {
+            c.sgie.config_file = req<std::string>(s, "config_file");
+        } else {
+            c.sgie.config_file = s["config_file"].as<std::string>(c.sgie.config_file);
+        }
+        c.sgie.embedding_dim = s["embedding_dim"].as<int>(c.sgie.embedding_dim);
+    }
+
     if (auto t = root["tracker"]) {
         c.tracker.config_file = req<std::string>(t, "config_file");
         c.tracker.ll_lib      = t["ll_lib"].as<std::string>(c.tracker.ll_lib);

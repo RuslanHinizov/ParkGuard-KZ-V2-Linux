@@ -64,6 +64,9 @@ void Pipeline::build() {
 
     streammux_ = make_or_throw("nvstreammux", "streammux");
     pgie_      = make_or_throw("nvinfer",     "pgie");
+    if (cfg_.sgie.enabled) {
+        sgie_ = make_or_throw("nvinfer",      "sgie");
+    }
     tracker_   = make_or_throw("nvtracker",   "tracker");
     sink_      = make_or_throw("fakesink",    "sink");
 
@@ -81,6 +84,13 @@ void Pipeline::build() {
     g_object_set(pgie_,
                  "config-file-path", cfg_.pgie.config_file.c_str(),
                  nullptr);
+
+    // ---- sgie (optional) ---------------------------------------------------
+    if (sgie_) {
+        g_object_set(sgie_,
+                     "config-file-path", cfg_.sgie.config_file.c_str(),
+                     nullptr);
+    }
 
     // ---- tracker -----------------------------------------------------------
     g_object_set(tracker_,
@@ -100,7 +110,13 @@ void Pipeline::build() {
                  "qos",         FALSE,
                  nullptr);
 
-    gst_bin_add_many(GST_BIN(pipeline_), streammux_, pgie_, tracker_, sink_, nullptr);
+    if (sgie_) {
+        gst_bin_add_many(GST_BIN(pipeline_),
+                         streammux_, pgie_, sgie_, tracker_, sink_, nullptr);
+    } else {
+        gst_bin_add_many(GST_BIN(pipeline_),
+                         streammux_, pgie_, tracker_, sink_, nullptr);
+    }
 
     // ---- sources -----------------------------------------------------------
     CameraIndex index;
@@ -115,13 +131,20 @@ void Pipeline::build() {
         index.stats.emplace_back(std::make_unique<ProbeStats>());
     }
 
-    // ---- link pgie -> tracker -> sink --------------------------------------
+    // ---- link pgie -> [sgie] -> tracker -> sink ----------------------------
     link_or_throw(streammux_, pgie_,    "streammux",   "pgie");
-    link_or_throw(pgie_,      tracker_, "pgie",        "tracker");
+    if (sgie_) {
+        link_or_throw(pgie_,    sgie_,    "pgie",     "sgie");
+        link_or_throw(sgie_,    tracker_, "sgie",     "tracker");
+    } else {
+        link_or_throw(pgie_,    tracker_, "pgie",     "tracker");
+    }
     link_or_throw(tracker_,   sink_,    "tracker",     "sink");
 
     // ---- attach probe on tracker src pad -----------------------------------
-    probe_ = std::make_unique<DetectionProbe>(producer_, cfg_.kafka.topic_detections, std::move(index));
+    const int embed_dim = cfg_.sgie.enabled ? cfg_.sgie.embedding_dim : 0;
+    probe_ = std::make_unique<DetectionProbe>(
+        producer_, cfg_.kafka.topic_detections, std::move(index), embed_dim);
     GstPad* tracker_src = gst_element_get_static_pad(tracker_, "src");
     if (!tracker_src) throw std::runtime_error("tracker src pad not found");
     if (probe_->install(tracker_src) == 0) {
