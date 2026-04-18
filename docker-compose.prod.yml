@@ -1,0 +1,70 @@
+# =============================================================================
+# ParkGuard KZ — production overrides
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# -----------------------------------------------------------------------------
+# Prod differences:
+#   - ports bound to loopback only (front-edge via nginx)
+#   - stricter restart policies and resource limits
+#   - Redis `protected-mode yes`
+#   - Kafka retention tighter, replication factor stays 1 (single-broker LAN)
+#   - MinIO console disabled by default (uncomment only when debugging)
+#   - all services pinned to immutable tags (via main compose file)
+# =============================================================================
+
+name: parkguard-kz
+
+services:
+  postgres:
+    restart: always
+    ports: []                                # do not expose to host
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "2.0"
+
+  redis:
+    restart: always
+    ports: []
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 2gb
+      --maxmemory-policy allkeys-lru
+      --protected-mode yes
+    deploy:
+      resources:
+        limits:
+          memory: 2500M
+
+  kafka:
+    restart: always
+    ports: []
+    environment:
+      KAFKA_LOG_RETENTION_HOURS: 48
+      KAFKA_LOG_SEGMENT_BYTES: 536870912    # 512 MB
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: "2.0"
+
+  zookeeper:
+    restart: always
+
+  minio:
+    restart: always
+    ports:
+      - "127.0.0.1:9000:9000"               # S3 API — nginx proxies externally
+      # - "127.0.0.1:9001:9001"             # console disabled in prod
+
+  event-api:
+    restart: always
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"

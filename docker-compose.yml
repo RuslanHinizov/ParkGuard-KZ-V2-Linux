@@ -1,0 +1,323 @@
+# =============================================================================
+# ParkGuard KZ — development docker compose
+# -----------------------------------------------------------------------------
+# Infrastructure + app services. GPU-bound services (deepstream-app,
+# plate-service) require nvidia-container-toolkit + RTX 5070 Ti Blackwell
+# (sm_120). Build TensorRT engines on the HOST, not in containers
+# (spec §7.4 / §15.6). Start order is enforced via healthchecks + depends_on.
+# =============================================================================
+
+name: parkguard-kz
+
+x-common-env: &common-env
+  TZ: ${TZ:-Asia/Almaty}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ENV: ${ENV:-dev}
+
+x-common-logging: &common-logging
+  driver: json-file
+  options:
+    max-size: "100m"
+    max-file: "10"
+
+networks:
+  parkguard_net:
+    driver: bridge
+    name: parkguard_net
+
+volumes:
+  postgres_data:
+    name: parkguard_postgres_data
+  redis_data:
+    name: parkguard_redis_data
+  kafka_data:
+    name: parkguard_kafka_data
+  zookeeper_data:
+    name: parkguard_zookeeper_data
+  zookeeper_log:
+    name: parkguard_zookeeper_log
+  minio_data:
+    name: parkguard_minio_data
+  snapshots:
+    name: parkguard_snapshots
+  prometheus_data:
+    name: parkguard_prometheus_data
+  grafana_data:
+    name: parkguard_grafana_data
+  loki_data:
+    name: parkguard_loki_data
+
+services:
+  # ==========================================================================
+  # INFRASTRUCTURE
+  # ==========================================================================
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: parkguard_postgres
+    hostname: postgres
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      POSTGRES_DB: ${POSTGRES_DB:-parkguard}
+      POSTGRES_USER: ${POSTGRES_USER:-parkguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: parkguard_redis
+    hostname: redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+    environment:
+      <<: *common-env
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: parkguard_zookeeper
+    hostname: zookeeper
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_INIT_LIMIT: 10
+      ZOOKEEPER_SYNC_LIMIT: 5
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc -w 2 localhost 2181 | grep -q Mode"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: parkguard_kafka
+    hostname: kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: 6
+      KAFKA_LOG_RETENTION_HOURS: 72
+      KAFKA_MESSAGE_MAX_BYTES: 10485760    # 10MB (embeddings + crops)
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 10485760
+    ports:
+      - "127.0.0.1:9093:9093"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Kafka topic bootstrapper: creates fixed topics on first run, then exits.
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: parkguard_kafka_init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        BS=kafka:9092
+        echo "Waiting for Kafka broker..."
+        for i in {1..30}; do
+          if kafka-broker-api-versions --bootstrap-server $$BS >/dev/null 2>&1; then
+            echo "Broker ready."; break
+          fi
+          sleep 2
+        done
+        create () {
+          kafka-topics --bootstrap-server $$BS --create --if-not-exists \
+            --topic $$1 --partitions $$2 --replication-factor 1 \
+            --config retention.ms=$$3
+        }
+        # topic            partitions  retention_ms
+        create detections           12   259200000   # 72h
+        create violations            6   604800000   # 7d
+        create snapshot_requests     6    86400000   # 24h
+        create snapshot_responses    6    86400000
+        create ocr_requests          6    86400000
+        create ocr_results           6    86400000
+        create penalty_card_requests 6   604800000
+        echo "Topics OK:"
+        kafka-topics --bootstrap-server $$BS --list
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-02T17-50-41Z
+    container_name: parkguard_minio
+    hostname: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      <<: *common-env
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-parkguard}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+      MINIO_BROWSER_REDIRECT_URL: http://localhost:9001
+    ports:
+      - "127.0.0.1:9000:9000"    # S3 API
+      - "127.0.0.1:9001:9001"    # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  # MinIO bucket bootstrapper
+  minio-init:
+    image: minio/mc:RELEASE.2024-10-02T08-27-28Z
+    container_name: parkguard_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        for b in "$${MINIO_BUCKET_SNAPSHOTS:-snapshots}" "$${MINIO_BUCKET_CARDS:-penalty-cards}"; do
+          mc mb --ignore-existing "local/$$b"
+          mc anonymous set download "local/$$b" || true
+        done
+        echo "MinIO buckets ready:"
+        mc ls local/
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-parkguard}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+      MINIO_BUCKET_SNAPSHOTS: ${MINIO_BUCKET_SNAPSHOTS:-snapshots}
+      MINIO_BUCKET_CARDS: ${MINIO_BUCKET_CARDS:-penalty-cards}
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  # ==========================================================================
+  # APPLICATION SERVICES
+  # ==========================================================================
+  # NOTE: build contexts & Dockerfile paths are wired up at each delivery step.
+  # Commented-out services are activated as Section 14 progresses.
+  # ==========================================================================
+
+  event-api:
+    build:
+      context: .
+      dockerfile: python-services/event-api/Dockerfile
+    image: parkguard/event-api:dev
+    container_name: parkguard_event_api
+    hostname: event-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      <<: *common-env
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
+      REDIS_URL: ${REDIS_URL}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_SNAPSHOTS: ${MINIO_BUCKET_SNAPSHOTS:-snapshots}
+      MINIO_BUCKET_CARDS: ${MINIO_BUCKET_CARDS:-penalty-cards}
+      API_HOST: ${API_HOST:-0.0.0.0}
+      API_PORT: ${API_PORT:-8000}
+      API_CORS_ORIGINS: ${API_CORS_ORIGINS}
+      API_RATE_LIMIT_PER_MIN: ${API_RATE_LIMIT_PER_MIN:-500}
+      DEFAULT_OPERATOR_NAME: ${DEFAULT_OPERATOR_NAME:-System}
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [parkguard_net]
+    logging: *common-logging
+    # CPU affinity per spec §13.2 (applied on linux host; ignored on WSL)
+    cpuset: "12-19"
+
+  # ---- services below are scaffolded at later delivery steps ----
+  # violation-service, plate-service, snapshot-consumer,
+  # penalty-card-service, deepstream-app, frontend, nginx,
+  # prometheus, grafana, loki, alertmanager, node-exporter
