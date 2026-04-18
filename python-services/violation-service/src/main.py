@@ -1,22 +1,20 @@
 """
 python-services/violation-service/src/main.py
 
-Adım 4 — skeleton entry point. The full state machine (spec §8) lands in
-Adım 5; this file is here now so:
+Adım 5 — CVI manager + state machine wired into the Kafka consume
+loop. Each `DetectionMessage` is expanded into one Observation per
+detected object; the CVI manager resolves identity; the state machine
+advances every zone; violations land in Postgres through the unique-
+key-protected writer.
 
-  * the Kafka consumer lifecycle (connect, manual commit, graceful
-    shutdown on SIGTERM) is already exercised end-to-end
-  * the health/metrics HTTP server is in the compose graph
-  * later adımlar can plug in without reshaping the process
+Process graph:
 
-What this skeleton does:
-  1. Configure logging + connect to Postgres / Redis / Kafka / MinIO
-  2. Consume from topic `detections` with manual commit (spec §15.1)
-  3. For each message: parse into DetectionMessage, log a counter, and
-     commit the offset. NO state machine, NO writes to `violations`.
-  4. Expose :9200/healthz + :9200/metrics (Prometheus).
-
-Adım 5 replaces step 3 with the CVI manager + state machine logic.
+    detections (Kafka)
+        → DetectionMessage
+            → Observation (× objects)
+                → CVIManager.resolve
+                    → StateMachine.evaluate per zone
+                        → ViolationWriter.insert (on VIOLATED)
 """
 
 from __future__ import annotations
@@ -33,8 +31,14 @@ from shared import db, kafka_client, minio_client, redis_client
 from shared.config import settings
 from shared.logging import bind_context, configure_logging, get_logger, new_trace_id
 from shared.schemas import DetectionMessage
+from src.active_registry import ActiveViolationRegistry
+from src.cvi_manager import CVIManager
 from src.health import HealthServer
 from src.metrics import DETECTIONS_CONSUMED, MESSAGES_FAILED, UP
+from src.observation import Observation
+from src.state_machine import StateMachine
+from src.violation_writer import ViolationWriter
+from src.zone_cache import ZoneCache
 
 if TYPE_CHECKING:
     from aiokafka import AIOKafkaConsumer
@@ -44,9 +48,6 @@ logger = get_logger(__name__)
 SERVICE_NAME = "violation-service"
 
 
-# --------------------------------------------------------------------------- #
-# Runtime
-# --------------------------------------------------------------------------- #
 class Runtime:
     """Owns every long-lived resource so shutdown is one call."""
 
@@ -54,6 +55,9 @@ class Runtime:
         self.shutdown_event: asyncio.Event = asyncio.Event()
         self.health: HealthServer | None = None
         self.consumer: AIOKafkaConsumer | None = None
+        self.cvi_manager: CVIManager | None = None
+        self.state_machine: StateMachine | None = None
+        self.zone_cache: ZoneCache | None = None
 
     async def startup(self) -> None:
         configure_logging(service_name=SERVICE_NAME)
@@ -62,14 +66,23 @@ class Runtime:
             env=settings.ENV,
             brokers=settings.KAFKA_BOOTSTRAP_SERVERS,
         )
-        # Warm connections so /readyz on the health server is honest.
         await db.ping()
         await redis_client.ping()
         await minio_client.ping()
 
-        self.consumer = await kafka_client.make_consumer(
-            topic="detections",
-            group_id="violation-service",
+        redis = redis_client.get_redis()
+        session_factory = db.get_session_factory()
+
+        self.cvi_manager = CVIManager(redis=redis)
+        self.zone_cache = ZoneCache(session_factory=session_factory)
+        self.state_machine = StateMachine(
+            writer=ViolationWriter(session_factory),
+            registry=ActiveViolationRegistry(redis),
+        )
+        await self.zone_cache.refresh()
+
+        self.consumer = kafka_client.make_consumer(
+            ["detections"], group_id="violation-service"
         )
         await self.consumer.start()
 
@@ -83,6 +96,10 @@ class Runtime:
 
     async def consume(self) -> None:
         assert self.consumer is not None
+        assert self.cvi_manager is not None
+        assert self.state_machine is not None
+        assert self.zone_cache is not None
+
         try:
             async for msg in self.consumer:
                 trace_id = _extract_trace(msg.headers) or new_trace_id()
@@ -94,29 +111,35 @@ class Runtime:
                 )
                 try:
                     payload = DetectionMessage.model_validate_json(
-                        msg.value.decode() if isinstance(msg.value, (bytes, bytearray)) else msg.value
+                        msg.value.decode()
+                        if isinstance(msg.value, (bytes, bytearray))
+                        else msg.value
                     )
-                    DETECTIONS_CONSUMED.labels(camera=payload.sensor_id).inc(len(payload.objects))
-                    # Adım 5 will invoke cvi_manager + state_machine here.
-                    logger.debug(
-                        "detection_received",
-                        camera=payload.sensor_id,
-                        frame=payload.frame_id,
-                        object_count=len(payload.objects),
+                    DETECTIONS_CONSUMED.labels(camera=payload.sensor_id).inc(
+                        len(payload.objects)
                     )
+                    zones = await self.zone_cache.zones_for_camera(payload.sensor_id)
+                    if not zones:
+                        # No enabled zones on this camera → nothing to evaluate.
+                        await self.consumer.commit()
+                        continue
+                    for obj in payload.objects:
+                        obs = Observation.from_detection(payload, obj)
+                        cvi, _match = await self.cvi_manager.resolve(obs)
+                        await self.state_machine.evaluate(cvi, obs, zones)
                 except ValidationError as exc:
                     MESSAGES_FAILED.labels(reason="schema").inc()
                     logger.warning("detection_schema_invalid", error=str(exc))
-                except Exception as exc:  # noqa: BLE001 — log + continue
+                except Exception as exc:  # noqa: BLE001
                     MESSAGES_FAILED.labels(reason="unknown").inc()
                     logger.exception("detection_handler_failed", error=str(exc))
 
-                # manual commit per spec §15.1
+                # Manual commit per spec §15.1 — only after handler returned.
                 await self.consumer.commit()
 
                 if self.shutdown_event.is_set():
                     break
-        except KafkaError as exc:  # noqa: BLE001
+        except KafkaError as exc:
             logger.exception("kafka_consumer_error", error=str(exc))
 
     async def shutdown(self) -> None:
@@ -144,9 +167,6 @@ def _extract_trace(headers: list[tuple[str, bytes]] | None) -> str | None:
     return None
 
 
-# --------------------------------------------------------------------------- #
-# Entry point
-# --------------------------------------------------------------------------- #
 async def amain() -> None:
     rt = Runtime()
 
