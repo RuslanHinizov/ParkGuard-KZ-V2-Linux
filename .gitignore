@@ -1,0 +1,127 @@
+# === Environment / secrets ===
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+secrets/
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.venv/
+venv/
+env/
+ENV/
+*.log
+
+# Poetry / uv / pip lock caches (keep the lock files themselves)
+.pip-cache/
+
+# === Node / Frontend ===
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+dist/
+build/
+.next/
+.nuxt/
+.vite/
+.turbo/
+.eslintcache
+coverage/
+*.tsbuildinfo
+
+# === C++ / CMake / DeepStream ===
+cpp-deepstream/build/
+cpp-deepstream/cmake-build-*/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.pdb
+*.exp
+*.ilk
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile.cmake
+compile_commands.json
+
+# === Models & engines (large binary artifacts — build on host) ===
+cpp-deepstream/models/*.engine
+cpp-deepstream/models/*.onnx
+cpp-deepstream/models/*.trt
+cpp-deepstream/models/*.plan
+cpp-deepstream/models/*.bin
+cpp-deepstream/models/.cache/
+python-services/plate-service/models/*.onnx
+python-services/plate-service/models/*.pt
+python-services/plate-service/models/*.pth
+python-services/plate-service/models/*.engine
+python-services/plate-service/models/.cache/
+
+# === Media, snapshots, temporary evidence ===
+shared/snapshots/
+shared/cards/
+data/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.avi
+*.mkv
+# Allow assets/test fixtures committed explicitly
+!frontend/src/assets/**
+!docs/assets/**
+!python-services/*/tests/fixtures/**
+
+# === Docker ===
+.docker-data/
+*.dockerignore.local
+
+# === IDE / OS ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+
+# === Claude / agent memory (local only) ===
+.claude/
+CLAUDE.local.md
+
+# === Logs / runtime ===
+logs/
+*.log
+*.pid
+
+# === Coverage / reports ===
+.nyc_output/
+junit.xml
+test-results/

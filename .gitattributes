@@ -1,0 +1,44 @@
+# Cross-platform line endings: text files LF in repo, checkout-time conversion
+* text=auto eol=lf
+
+# Explicit LF for shell, Python, config, docs
+*.sh    text eol=lf
+*.py    text eol=lf
+*.pyx   text eol=lf
+*.pyi   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.txt   text eol=lf
+*.env.example text eol=lf
+Dockerfile text eol=lf
+Makefile   text eol=lf
+*.cpp   text eol=lf
+*.hpp   text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.scss  text eol=lf
+
+# Binary — never touch
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.pdf   binary
+*.onnx  binary
+*.engine binary
+*.pt    binary
+*.pth   binary
+*.mp4   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
