@@ -36,6 +36,7 @@ from src.cvi_manager import CVIManager
 from src.health import HealthServer
 from src.metrics import DETECTIONS_CONSUMED, MESSAGES_FAILED, UP
 from src.observation import Observation
+from src.ocr_results_consumer import OCRResultsConsumer
 from src.state_machine import StateMachine
 from src.violation_writer import ViolationWriter
 from src.zone_cache import ZoneCache
@@ -58,6 +59,7 @@ class Runtime:
         self.cvi_manager: CVIManager | None = None
         self.state_machine: StateMachine | None = None
         self.zone_cache: ZoneCache | None = None
+        self.ocr_consumer: OCRResultsConsumer | None = None
 
     async def startup(self) -> None:
         configure_logging(service_name=SERVICE_NAME)
@@ -85,6 +87,13 @@ class Runtime:
             ["detections"], group_id="violation-service"
         )
         await self.consumer.start()
+
+        # Adım 7 — fold OCR results from plate-service back into CVIs.
+        self.ocr_consumer = OCRResultsConsumer(
+            cvi_manager=self.cvi_manager,
+            shutdown_event=self.shutdown_event,
+        )
+        await self.ocr_consumer.start()
 
         self.health = HealthServer(
             host="0.0.0.0",  # noqa: S104 — LAN-only per spec §11
@@ -148,6 +157,8 @@ class Runtime:
         if self.consumer is not None:
             with suppress(Exception):
                 await self.consumer.stop()
+        if self.ocr_consumer is not None:
+            await self.ocr_consumer.stop()
         if self.health is not None:
             await self.health.stop()
         await kafka_client.close_producer()
@@ -183,11 +194,14 @@ async def amain() -> None:
 
     await rt.startup()
     try:
+        assert rt.ocr_consumer is not None
         consumer_task = asyncio.create_task(rt.consume())
+        ocr_task = asyncio.create_task(rt.ocr_consumer.run())
         await rt.shutdown_event.wait()
-        consumer_task.cancel()
+        for t in (consumer_task, ocr_task):
+            t.cancel()
         with suppress(asyncio.CancelledError):
-            await consumer_task
+            await asyncio.gather(consumer_task, ocr_task, return_exceptions=True)
     finally:
         await rt.shutdown()
 

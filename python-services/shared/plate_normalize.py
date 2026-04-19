@@ -125,6 +125,23 @@ def normalize_kz_plate(raw: str) -> NormalizedPlate:
                 is_diplomatic=False,
             )
 
+    # ---- kz_diplo (D/T/HC/M/H/F prefix) ----
+    # Check diplo BEFORE kz_old: a plate like "D123AB" also matches the
+    # old A-type regex (one letter + 3 digits + 2 letters), but spec §9.3
+    # reserves D/T/HC/M/H/F prefixes for diplomatic missions — treat
+    # those as diplomatic unambiguously.
+    m = KZ_DIPLO_RE.match(cleaned)
+    if m:
+        return NormalizedPlate(
+            raw=raw,
+            text=cleaned,
+            format_type="kz_diplo",
+            region_code=None,
+            region_name=None,
+            is_valid=True,
+            is_diplomatic=True,
+        )
+
     # ---- kz_old (L DDD LL(L)) ----
     if 6 <= len(cleaned) <= 7:
         fixed = _fix_by_position_old(cleaned)
@@ -139,19 +156,6 @@ def normalize_kz_plate(raw: str) -> NormalizedPlate:
                 is_valid=True,
                 is_diplomatic=False,
             )
-
-    # ---- kz_diplo (D/T/HC/M/H/F prefix) ----
-    m = KZ_DIPLO_RE.match(cleaned)
-    if m:
-        return NormalizedPlate(
-            raw=raw,
-            text=cleaned,
-            format_type="kz_diplo",
-            region_code=None,
-            region_name=None,
-            is_valid=True,
-            is_diplomatic=True,
-        )
 
     return _unknown(raw, text=cleaned)
 

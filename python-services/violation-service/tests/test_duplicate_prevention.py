@@ -319,7 +319,10 @@ async def test_08_reentry_after_cooldown_writes_new_violation(
         await state.evaluate(cvi_out, out, [zone])
 
     # Re-enter at t=36 — fresh cycle. Drive to new violation.
-    for t in range(36, 60):
+    # Cooldown expires at t=42 (32 + 10 s cooldown); the new cycle's
+    # entered_at is then 42, so threshold_met fires at t=62. We run
+    # through t=64 inclusive to leave a little slack either side.
+    for t in range(36, 65):
         obs = make_obs(stamped(fixed_now, seconds=t), ds_track_id=1,
                        centroid=(50, 50),
                        plate="111ZZZ02", plate_conf=0.9)

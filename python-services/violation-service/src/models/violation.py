@@ -52,6 +52,11 @@ class Violation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
 
+    # ---- Required fields (no default — must be supplied at construction) ----
+    # NOTE: SQLAlchemy's MappedAsDataclass generates __init__ from field
+    # declaration order, and Python dataclasses forbid a required arg after
+    # a defaulted one. So all non-default fields live up here; defaulted
+    # fields follow. SQL column order in the table is cosmetic.
     camera_id: Mapped[str] = mapped_column(
         String(32),
         ForeignKey("cameras.id", ondelete="CASCADE"),
@@ -62,15 +67,18 @@ class Violation(Base):
         ForeignKey("zones.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Idempotency — the ONE constraint that makes duplicate cezas impossible.
+    identity_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    first_seen_in_zone: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    violation_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # ---- Optional / defaulted fields ----
     cvi_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("cvi_records.cvi_id", ondelete="SET NULL"),
         nullable=True,
         default=None,
     )
-
-    # Idempotency — the ONE constraint that makes duplicate cezas impossible.
-    identity_key: Mapped[str] = mapped_column(String(128), nullable=False)
     cycle_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     plate_text: Mapped[str | None] = mapped_column(String(16), nullable=True, default=None)
@@ -81,8 +89,6 @@ class Violation(Base):
     is_diplomatic: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     vehicle_class: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
 
-    first_seen_in_zone: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    violation_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     exit_confirmed_time: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )

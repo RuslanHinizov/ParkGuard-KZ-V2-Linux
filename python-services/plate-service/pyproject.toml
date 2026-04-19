@@ -1,0 +1,75 @@
+[project]
+name = "parkguard-plate-service"
+version = "0.5.0"
+description = "ParkGuard KZ — Nomeroff-net 4.0.1 plate OCR service"
+# Nomeroff-net 4.0.1's transitive wheels (torch, torchvision, easyocr)
+# are tested against Python 3.10. Newer Python here just breaks pip
+# resolution silently — pin it.
+requires-python = ">=3.10,<3.11"
+
+dependencies = [
+    "aiokafka>=0.12,<0.13",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5,<3",
+    "tenacity>=9.0,<10",
+    "structlog>=24.4,<25",
+    "prometheus-client>=0.21,<1",
+    # Image handling — Nomeroff pipeline also pulls opencv, but we want
+    # it in our direct deps so our own code (warmup, b64 decode) stays
+    # independent of transitive pin drift.
+    "numpy>=1.26,<2.1",
+    "opencv-python-headless>=4.10,<5",
+    "aiohttp>=3.10,<4",
+    # FastAPI for /healthz + /metrics only. Very light — keeps the
+    # service hot-pollable from Prometheus without a second web stack.
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+]
+
+[project.optional-dependencies]
+# Nomeroff is *not* in the base deps because it pulls several GB of
+# torch wheels and is GPU-only. CI (the Windows dev box the author
+# uses) installs plate-service without it for unit tests that stub
+# the pipeline; prod containers install via `pip install -e .[gpu]`.
+gpu = [
+    "nomeroff-net==4.0.1",
+    "torch>=2.1,<2.4",
+    "torchvision>=0.16,<0.19",
+]
+dev = [
+    "ruff>=0.7,<0.8",
+    "mypy>=1.13,<2",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<0.25",
+    "pytest-cov>=6.0,<7",
+    "httpx>=0.27,<0.28",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "S", "ANN", "T20", "BLE"]
+ignore = ["ANN101", "ANN102", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-v --strict-markers --tb=short"
+testpaths = ["tests"]

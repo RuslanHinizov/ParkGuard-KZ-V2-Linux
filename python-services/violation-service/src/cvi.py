@@ -120,6 +120,26 @@ class CVI:
             self.state_per_zone[zone_id] = entry
         return entry
 
+    def record_plate_vote(self, plate_text: str | None, confidence: float | None) -> bool:
+        """
+        Fold an out-of-band OCR result (from the `ocr_results` topic) into
+        plate_votes. Returns True when this vote pushes the plate past the
+        majority threshold and stabilises `plate_text`.
+
+        Votes below PLATE_MIN_CONFIDENCE are discarded — they still show
+        up as a signal in plate-service logs but don't pollute the CVI.
+        """
+        if not plate_text or confidence is None or confidence < PLATE_MIN_CONFIDENCE:
+            return False
+        self.plate_votes[plate_text] += 1
+        top, votes = self.plate_votes.most_common(1)[0]
+        if votes >= PLATE_VOTE_MAJORITY:
+            changed = self.plate_text != top
+            self.plate_text = top
+            self.plate_confidence = confidence
+            return changed
+        return False
+
 
 __all__ = [
     "CVI",

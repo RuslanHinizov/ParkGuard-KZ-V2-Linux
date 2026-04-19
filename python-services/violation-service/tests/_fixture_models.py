@@ -28,14 +28,19 @@ class FixtureZone(Base):
     __tablename__ = "zones"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
+
+    # Required — must come before any defaulted field (MappedAsDataclass
+    # generates __init__ in declaration order).
     camera_id: Mapped[str] = mapped_column(
         String(32),
         ForeignKey("cameras.id", ondelete="CASCADE"),
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    zone_type: Mapped[str] = mapped_column(String(32), nullable=False, default="no_parking")
     polygon_wkt: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Defaulted.
+    zone_type: Mapped[str] = mapped_column(String(32), nullable=False, default="no_parking")
     threshold_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     exit_confirm_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     cooldown_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10)

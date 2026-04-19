@@ -60,3 +60,5 @@ warn_unused_configs = true
 asyncio_mode = "auto"
 addopts = "-v --strict-markers --tb=short"
 testpaths = ["tests"]
+# Make `shared` (python-services/shared) and `src` importable from tests.
+pythonpath = [".", ".."]

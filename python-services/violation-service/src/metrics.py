@@ -47,10 +47,17 @@ DUPLICATES_PREVENTED = Counter(
     labelnames=("layer",),   # layer ∈ {cvi, redis, exit_confirm, db_unique}
 )
 
+OCR_RESULTS_APPLIED = Counter(
+    "parkguard_ocr_results_applied_total",
+    "ocr_results messages folded back into a CVI's plate_votes.",
+    labelnames=("outcome",),  # stabilised | vote_only | no_cvi | invalid
+)
+
 __all__ = [
     "DETECTIONS_CONSUMED",
     "DUPLICATES_PREVENTED",
     "MESSAGES_FAILED",
+    "OCR_RESULTS_APPLIED",
     "STATE_TRANSITIONS",
     "UP",
     "VIOLATIONS_CREATED",

@@ -30,7 +30,7 @@ from uuid import UUID
 
 import numpy as np
 
-from shared.geometry import BBox, bbox_iou, predicted_bbox_center
+from shared.geometry import BBox, bbox_iou
 from shared.logging import get_logger
 from shared.plate_normalize import normalize_kz_plate
 from src.cvi import CVI, PLATE_MIN_CONFIDENCE
@@ -113,6 +113,36 @@ class CVIManager:
         )
         return cvi, MatchResult(cvi_id=cvi.cvi_id, priority=0, reason="new")
 
+    async def apply_ocr_result(
+        self,
+        *,
+        cvi_id: UUID,
+        plate_text: str | None,
+        plate_confidence: float,
+    ) -> bool:
+        """
+        Fold an ``ocr_results`` message back into its CVI. Returns True
+        if the vote stabilised a new plate (i.e. we reached the
+        majority threshold on this tick), which callers can use to
+        decide whether to re-key Redis indexes.
+
+        A missing CVI is not an error — it simply means we evicted it
+        before the OCR result came back. Common under heavy traffic.
+        """
+        cvi = self._cvis.get(cvi_id)
+        if cvi is None:
+            logger.info("ocr_result_cvi_missing", cvi_id=str(cvi_id))
+            return False
+        stabilised = cvi.record_plate_vote(plate_text, plate_confidence)
+        if stabilised:
+            await self._index_plate(cvi)
+            logger.info(
+                "cvi_plate_stabilised",
+                cvi_id=str(cvi_id),
+                plate=cvi.plate_text,
+            )
+        return stabilised
+
     def evict_stale(self, now: datetime, *, max_idle_seconds: int = 600) -> int:
         """Drop CVIs idle for > max_idle_seconds — matches spec §4.4."""
         cutoff = now - timedelta(seconds=max_idle_seconds)
@@ -140,16 +170,19 @@ class CVIManager:
                         return MatchResult(c.cvi_id, 1, "plate")
 
         # -- Priority 2: SPATIAL+TEMPORAL -------------------------------------
+        # We intentionally compare the new bbox against the CVI's *last*
+        # bbox directly rather than motion-compensated — a velocity
+        # estimated from the observation we're trying to match would
+        # trivially predict itself and defeat the IoU gate. Over a 3-s
+        # window at typical parking-camera frame rates, zero-velocity
+        # prediction is already within the IoU tolerance.
         spatial: list[tuple[float, CVI]] = []
         for c in candidates:
             if c.last_bbox is None:
                 continue
             if not _within(now, c.last_seen, SPATIAL_LAST_SEEN_WINDOW):
                 continue
-            dt = max(0.0, (now - c.last_seen).total_seconds())
-            velocity = _estimate_velocity(c, obs)
-            predicted = predicted_bbox_center(c.last_bbox, velocity, dt)
-            iou = bbox_iou(predicted, obs.bbox)
+            iou = bbox_iou(c.last_bbox, obs.bbox)
             if iou > SPATIAL_IOU_THRESHOLD:
                 spatial.append((iou, c))
         if len(spatial) == 1:
@@ -206,20 +239,6 @@ def _within(now: datetime, last: datetime, window: timedelta) -> bool:
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     return now - last <= window
-
-
-def _estimate_velocity(c: CVI, obs: Observation) -> tuple[float, float]:
-    """
-    Very rough pixel/second estimate from the last-known centroid to
-    the current observation. The state machine doesn't depend on this
-    being accurate — it only feeds priority-2 matching.
-    """
-    if c.last_bbox is None or c.last_centroid == (0, 0):
-        return (0.0, 0.0)
-    dt = max(1e-3, (obs.timestamp - c.last_seen).total_seconds())
-    dx = (obs.centroid[0] - c.last_centroid[0]) / dt
-    dy = (obs.centroid[1] - c.last_centroid[1]) / dt
-    return (dx, dy)
 
 
 def _pick_by_embedding(candidates: list[CVI], sample: np.ndarray) -> CVI | None:

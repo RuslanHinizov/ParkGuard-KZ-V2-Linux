@@ -21,10 +21,19 @@ from typing import TYPE_CHECKING
 import pytest
 import pytest_asyncio
 
-# Force sqlite-in-memory BEFORE importing shared.config.
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("DATABASE_URL_SYNC", "sqlite:///:memory:")
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+# BEFORE importing shared.config. The typed Settings insists on real
+# postgres/redis DSN strings; we feed it placeholder DSNs that pass
+# pydantic validation but never hit a real server. The actual test
+# engine is an in-memory sqlite created below with StaticPool.
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/parkguard"
+)
+os.environ.setdefault(
+    "DATABASE_URL_SYNC", "postgresql+psycopg2://test:test@localhost:5432/parkguard"
+)
+os.environ.setdefault("POSTGRES_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://:test@localhost:6379/0")
+os.environ.setdefault("REDIS_PASSWORD", "test")
 os.environ.setdefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 os.environ.setdefault("MINIO_ENDPOINT", "localhost:9000")
 os.environ.setdefault("MINIO_ROOT_USER", "minioadmin")
