@@ -19,10 +19,15 @@ from typing import TYPE_CHECKING
 import pytest
 import pytest_asyncio
 
-# Force sqlite-in-memory BEFORE importing shared.config.
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
-os.environ.setdefault("DATABASE_URL_SYNC", "sqlite:///:memory:")
-os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+# Set env vars BEFORE importing shared.config (parsed at module level).
+# Use valid Postgres-scheme URLs so pydantic's PostgresDsn validator passes;
+# the actual SQLite engine is built explicitly in the `engine` fixture and
+# monkeypatched into shared.db — these DSNs are never opened for real.
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/parkguard")
+os.environ.setdefault("DATABASE_URL_SYNC", "postgresql+psycopg2://test:test@localhost:5432/parkguard")
+os.environ.setdefault("POSTGRES_PASSWORD", "test")
+os.environ.setdefault("REDIS_URL", "redis://:test@localhost:6379/0")
+os.environ.setdefault("REDIS_PASSWORD", "test")
 os.environ.setdefault("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 os.environ.setdefault("MINIO_ENDPOINT", "localhost:9000")
 os.environ.setdefault("MINIO_ROOT_USER", "minioadmin")
@@ -41,7 +46,7 @@ import shared.db as shared_db  # noqa: E402
 import shared.kafka_client as shared_kafka  # noqa: E402
 import shared.minio_client as shared_minio  # noqa: E402
 import shared.redis_client as shared_redis  # noqa: E402
-from shared.db import Base  # noqa: E402
+from shared.db import Base, get_session as _original_get_session  # noqa: E402
 from src import models  # noqa: E402,F401  — side-effect: register ORM classes
 from src.main import create_app  # noqa: E402
 
@@ -100,9 +105,10 @@ async def app(monkeypatch, session_factory) -> "AsyncIterator[FastAPI]":  # noqa
 
     _app = create_app()
     # Override the FastAPI dependency too (it resolved at import time).
-    from shared.db import get_session
-
-    _app.dependency_overrides[get_session] = _test_get_session
+    # NOTE: use the pre-captured original function — at this point
+    # monkeypatch has already replaced shared_db.get_session, so a
+    # fresh `from shared.db import get_session` would give us the stub.
+    _app.dependency_overrides[_original_get_session] = _test_get_session
     yield _app
 
 

@@ -98,3 +98,4 @@ plugins = ["pydantic.mypy"]
 asyncio_mode = "auto"
 addopts = "-v --strict-markers --tb=short"
 testpaths = ["tests"]
+pythonpath = [".", ".."]

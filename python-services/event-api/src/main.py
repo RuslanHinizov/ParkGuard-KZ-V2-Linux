@@ -13,7 +13,9 @@ lifespan or middleware wiring.
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+import json
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -22,11 +24,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from shared import db, kafka_client, minio_client, redis_client
 from shared.config import settings
-from shared.logging import configure_logging, get_logger
+from shared.logging import configure_logging, get_logger, new_trace_id
 from shared.schemas import HealthStatus
 from src.middleware.operator import OperatorContextMiddleware
 from src.routers import cameras as cameras_router
+from src.routers import violations as violations_router
 from src.routers import zones as zones_router
+from src.services.ws_manager import manager as ws_manager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -38,7 +42,7 @@ API_VERSION = "0.4.0"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
-    """Startup / shutdown hooks — init Kafka producer eagerly."""
+    """Startup / shutdown hooks — init Kafka producer + WS fanout task."""
     configure_logging(service_name="event-api")
     logger.info(
         "event_api_starting",
@@ -49,16 +53,62 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
 
     try:
         await kafka_client.get_producer()
-    except Exception as exc:  # noqa: BLE001 — startup should not crash hard
+    except Exception as exc:  # noqa: BLE001
         logger.warning("kafka_producer_startup_warn", error=str(exc))
+
+    # Start Kafka→WebSocket fanout task for the violations stream.
+    fanout_task = asyncio.create_task(_violations_fanout(), name="ws-fanout")
 
     try:
         yield
     finally:
+        fanout_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await fanout_task
         logger.info("event_api_stopping")
         await kafka_client.close_producer()
         await redis_client.close_redis()
         await db.dispose_engine()
+
+
+async def _violations_fanout() -> None:
+    """
+    Background task: consume the `violations` Kafka topic and broadcast
+    each ViolationEvent JSON to all connected WebSocket clients.
+
+    Uses a dedicated consumer group so the event-api can replay violations
+    independently of violation-service. `auto_offset_reset="latest"` keeps
+    latency minimal; the dashboard only needs live events — historical data
+    is served by the REST endpoint.
+    """
+    consumer = kafka_client.make_consumer(
+        [settings.KAFKA_TOPIC_VIOLATIONS],
+        group_id=f"{settings.KAFKA_CLIENT_ID}-ws-fanout",
+        auto_offset_reset="latest",
+    )
+    try:
+        await consumer.start()
+        logger.info("violations_fanout_started")
+        async for msg in consumer:
+            if ws_manager.connection_count == 0:
+                # No clients → skip decode work entirely.
+                continue
+            try:
+                payload = json.loads(
+                    msg.value.decode() if isinstance(msg.value, (bytes, bytearray)) else msg.value
+                )
+                await ws_manager.broadcast(payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ws_fanout_broadcast_failed", error=str(exc))
+            with suppress(Exception):
+                await consumer.commit()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("violations_fanout_error", error=str(exc))
+    finally:
+        with suppress(Exception):
+            await consumer.stop()
 
 
 def create_app() -> FastAPI:
@@ -121,6 +171,8 @@ def create_app() -> FastAPI:
     app.include_router(cameras_router.router)
     app.include_router(zones_router.camera_zones)
     app.include_router(zones_router.zones)
+    app.include_router(violations_router.router)
+    app.include_router(violations_router.ws_router)
 
     return app
 

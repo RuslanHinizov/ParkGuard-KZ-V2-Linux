@@ -248,7 +248,7 @@ async def update_zone(
     return _to_out(row)
 
 
-@zones.delete("/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
+@zones.delete("/{zone_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_zone(
     zone_id: int,
     request: Request,

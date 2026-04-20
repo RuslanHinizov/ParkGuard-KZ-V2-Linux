@@ -217,7 +217,7 @@ async def upsert_camera(
     return _to_out(row)
 
 
-@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
 async def delete_camera(
     camera_id: str,
     request: Request,

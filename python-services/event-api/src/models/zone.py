@@ -32,6 +32,7 @@ _POLYGON = Text().with_variant(
 class Zone(Base):
     __tablename__ = "zones"
 
+    # NOTE: MappedAsDataclass field order — required fields before defaulted ones.
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, init=False)
     camera_id: Mapped[str] = mapped_column(
         String(32),
@@ -39,8 +40,8 @@ class Zone(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    zone_type: Mapped[str] = mapped_column(String(32), nullable=False, default="no_parking")
     polygon_wkt: Mapped[str] = mapped_column(_POLYGON, nullable=False)
+    zone_type: Mapped[str] = mapped_column(String(32), nullable=False, default="no_parking")
     threshold_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     exit_confirm_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     cooldown_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
