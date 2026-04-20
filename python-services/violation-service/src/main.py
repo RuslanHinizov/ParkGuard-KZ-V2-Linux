@@ -62,6 +62,7 @@ class Runtime:
         self.zone_cache: ZoneCache | None = None
         self.ocr_consumer: OCRResultsConsumer | None = None
         self.ocr_requester: PlateOCRRequester | None = None
+        self._evict_task: asyncio.Task | None = None
 
     async def startup(self) -> None:
         configure_logging(service_name=SERVICE_NAME)
@@ -110,7 +111,31 @@ class Runtime:
             shutdown_event=self.shutdown_event,
         )
         await self.health.start()
+
+        # Periodic CVI eviction (spec §4.4: drop idle CVIs every 60 s).
+        self._evict_task = asyncio.create_task(
+            self._evict_loop(), name="cvi-evict"
+        )
+
         UP.set(1)
+
+    async def _evict_loop(self, interval_s: int = 60) -> None:
+        """
+        Background task: evict idle CVIs every `interval_s` seconds.
+        Spec §4.4 — CVIs not seen for >600 s are dropped from memory;
+        their Redis keys expire independently via ACTIVE_CVI_TTL_SECONDS.
+        """
+        assert self.cvi_manager is not None
+        from datetime import datetime, timezone  # noqa: PLC0415 — local import OK
+
+        try:
+            while not self.shutdown_event.is_set():
+                await asyncio.sleep(interval_s)
+                evicted = self.cvi_manager.evict_stale(datetime.now(tz=timezone.utc))
+                if evicted:
+                    logger.info("cvi_eviction_cycle", evicted=evicted)
+        except asyncio.CancelledError:
+            pass
 
     async def consume(self) -> None:
         assert self.consumer is not None
@@ -163,6 +188,10 @@ class Runtime:
     async def shutdown(self) -> None:
         logger.info("violation_service_stopping")
         UP.set(0)
+        if self._evict_task is not None:
+            self._evict_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._evict_task
         if self.consumer is not None:
             with suppress(Exception):
                 await self.consumer.stop()

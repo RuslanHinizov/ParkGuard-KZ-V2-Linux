@@ -55,6 +55,17 @@ snapshot:
   poll_timeout_ms: 500
 
 cameras:
+  # Up to 12 cameras supported. Add one entry per physical RTSP stream.
+  # `id` must be unique; it becomes the sensor_id in all Kafka messages and
+  # the foreign-key for zones/violations in Postgres.
   - id: "cam_01"
-    rtsp_url: "rtsp://demo:demo@192.168.1.10:554/stream1"
+    rtsp_url: "rtsp://admin:admin@192.168.1.10:554/stream1"
     enabled: true
+  - id: "cam_02"
+    rtsp_url: "rtsp://admin:admin@192.168.1.11:554/stream1"
+    enabled: true
+  - id: "cam_03"
+    rtsp_url: "rtsp://admin:admin@192.168.1.12:554/stream1"
+    enabled: true
+  # Add more entries here — up to 8 for a single Jetson Orin NX,
+  # up to 12 for an A2000/A4500 server-class GPU (spec §14).

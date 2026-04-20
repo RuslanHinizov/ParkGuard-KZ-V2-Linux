@@ -5,6 +5,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <set>
 #include <stdexcept>
 
 namespace parkguard {
@@ -101,11 +102,15 @@ RuntimeCfg load_runtime_cfg(const std::string& path) {
     if (!cams || !cams.IsSequence() || cams.size() == 0) {
         throw std::runtime_error("config 'cameras' must be a non-empty sequence");
     }
+    std::set<std::string> seen_ids;
     for (const auto& node : cams) {
         CameraCfg cam;
         cam.id       = req<std::string>(node, "id");
         cam.rtsp_url = req<std::string>(node, "rtsp_url");
         cam.enabled  = node["enabled"].as<bool>(true);
+        if (!seen_ids.insert(cam.id).second) {
+            throw std::runtime_error("duplicate camera id in config: " + cam.id);
+        }
         c.cameras.push_back(std::move(cam));
     }
     return c;
