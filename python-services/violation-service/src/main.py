@@ -37,6 +37,7 @@ from src.health import HealthServer
 from src.metrics import DETECTIONS_CONSUMED, MESSAGES_FAILED, UP
 from src.observation import Observation
 from src.ocr_results_consumer import OCRResultsConsumer
+from src.plate_ocr_requester import PlateOCRRequester
 from src.state_machine import StateMachine
 from src.violation_writer import ViolationWriter
 from src.zone_cache import ZoneCache
@@ -60,6 +61,7 @@ class Runtime:
         self.state_machine: StateMachine | None = None
         self.zone_cache: ZoneCache | None = None
         self.ocr_consumer: OCRResultsConsumer | None = None
+        self.ocr_requester: PlateOCRRequester | None = None
 
     async def startup(self) -> None:
         configure_logging(service_name=SERVICE_NAME)
@@ -94,6 +96,13 @@ class Runtime:
             shutdown_event=self.shutdown_event,
         )
         await self.ocr_consumer.start()
+
+        # Adım 8 — drive snapshot→OCR for in-zone CVIs without a plate.
+        self.ocr_requester = PlateOCRRequester(
+            cvi_manager=self.cvi_manager,
+            shutdown_event=self.shutdown_event,
+        )
+        await self.ocr_requester.start()
 
         self.health = HealthServer(
             host="0.0.0.0",  # noqa: S104 — LAN-only per spec §11
@@ -157,6 +166,8 @@ class Runtime:
         if self.consumer is not None:
             with suppress(Exception):
                 await self.consumer.stop()
+        if self.ocr_requester is not None:
+            await self.ocr_requester.stop()
         if self.ocr_consumer is not None:
             await self.ocr_consumer.stop()
         if self.health is not None:

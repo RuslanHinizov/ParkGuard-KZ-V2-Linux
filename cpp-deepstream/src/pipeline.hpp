@@ -21,6 +21,8 @@
 #include "config.hpp"
 #include "detection_probe.hpp"
 #include "kafka_producer.hpp"
+#include "snapshot_consumer.hpp"
+#include "snapshot_tap.hpp"
 
 namespace parkguard {
 
@@ -63,9 +65,11 @@ private:
     GstElement* tracker_{nullptr};
     GstElement* sink_{nullptr};
 
-    GMainLoop*                      loop_{nullptr};
-    std::unique_ptr<DetectionProbe> probe_;
-    std::vector<GstElement*>        source_bins_;
+    GMainLoop*                        loop_{nullptr};
+    std::unique_ptr<DetectionProbe>   probe_;
+    std::unique_ptr<SnapshotTap>      snapshot_tap_;
+    std::unique_ptr<SnapshotConsumer> snapshot_consumer_;
+    std::vector<GstElement*>          source_bins_;
 };
 
 }  // namespace parkguard

@@ -83,6 +83,20 @@ struct HealthCfg {
     int         port{9100};
 };
 
+// Snapshot tap (Adım 8, spec §7.3). When `enabled: false` (MVP default)
+// no ring buffer is allocated and the Kafka consumer doesn't start.
+struct SnapshotCfg {
+    bool        enabled{false};
+    int         jpeg_quality_ring{80};        // ring encode quality
+    int         jpeg_quality_crop{85};        // bbox re-encode quality
+    int         ring_downscale_to_width{0};   // 0 = keep original size
+    std::string topic_requests{"snapshot_requests"};
+    std::string topic_responses{"snapshot_responses"};
+    std::string group_id{"deepstream-snapshot"};
+    std::string output_dir{"/shared/snapshots"};
+    int         poll_timeout_ms{500};
+};
+
 struct RuntimeCfg {
     MuxerCfg                  muxer;
     PgieCfg                   pgie;
@@ -90,6 +104,7 @@ struct RuntimeCfg {
     TrackerCfg                tracker;
     KafkaCfg                  kafka;
     HealthCfg                 health;
+    SnapshotCfg               snapshot;
     std::vector<CameraCfg>    cameras;
 };
 

@@ -56,6 +56,10 @@ pkg_check_modules(GST REQUIRED
 
 find_package(yaml-cpp REQUIRED)
 
+# OpenCV — used for JPEG encode of the snapshot ring buffer and bbox crops.
+# The DeepStream base image ships OpenCV 4.5+, so no special config is needed.
+find_package(OpenCV REQUIRED COMPONENTS core imgcodecs imgproc)
+
 # nlohmann/json: prefer package, fall back to vendored single-header.
 find_package(nlohmann_json 3.10 QUIET)
 if(NOT nlohmann_json_FOUND)
@@ -79,18 +83,22 @@ set(SRC
     src/detection_probe.cpp
     src/health_server.cpp
     src/base64.cpp
+    src/snapshot_tap.cpp
+    src/snapshot_consumer.cpp
 )
 
 add_executable(parkguard_ds ${SRC})
 target_include_directories(parkguard_ds PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${GST_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(parkguard_ds PRIVATE
     ${GST_LIBRARIES}
     yaml-cpp
     ${RDKAFKA_CPP_LIB}
     ${RDKAFKA_LIB}
+    ${OpenCV_LIBS}
     nvdsgst_meta
     nvds_meta
     nvdsgst_helper

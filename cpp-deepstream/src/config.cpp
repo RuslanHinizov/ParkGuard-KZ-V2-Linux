@@ -77,6 +77,26 @@ RuntimeCfg load_runtime_cfg(const std::string& path) {
         c.health.port = h["port"].as<int>(c.health.port);
     }
 
+    if (auto s = root["snapshot"]) {
+        c.snapshot.enabled                 = s["enabled"].as<bool>(c.snapshot.enabled);
+        c.snapshot.jpeg_quality_ring       = s["jpeg_quality_ring"]
+                                                 .as<int>(c.snapshot.jpeg_quality_ring);
+        c.snapshot.jpeg_quality_crop       = s["jpeg_quality_crop"]
+                                                 .as<int>(c.snapshot.jpeg_quality_crop);
+        c.snapshot.ring_downscale_to_width = s["ring_downscale_to_width"]
+                                                 .as<int>(c.snapshot.ring_downscale_to_width);
+        c.snapshot.topic_requests          = s["topic_requests"]
+                                                 .as<std::string>(c.snapshot.topic_requests);
+        c.snapshot.topic_responses         = s["topic_responses"]
+                                                 .as<std::string>(c.snapshot.topic_responses);
+        c.snapshot.group_id                = s["group_id"]
+                                                 .as<std::string>(c.snapshot.group_id);
+        c.snapshot.output_dir              = s["output_dir"]
+                                                 .as<std::string>(c.snapshot.output_dir);
+        c.snapshot.poll_timeout_ms         = s["poll_timeout_ms"]
+                                                 .as<int>(c.snapshot.poll_timeout_ms);
+    }
+
     auto cams = root["cameras"];
     if (!cams || !cams.IsSequence() || cams.size() == 0) {
         throw std::runtime_error("config 'cameras' must be a non-empty sequence");

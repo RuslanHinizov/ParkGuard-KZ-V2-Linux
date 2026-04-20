@@ -143,6 +143,9 @@ void Pipeline::build() {
 
     // ---- attach probe on tracker src pad -----------------------------------
     const int embed_dim = cfg_.sgie.enabled ? cfg_.sgie.embedding_dim : 0;
+    // Keep an index copy for the snapshot tap — DetectionProbe moves its own.
+    CameraIndex tap_index;
+    for (const auto& id : index.id_by_pad) tap_index.id_by_pad.push_back(id);
     probe_ = std::make_unique<DetectionProbe>(
         producer_, cfg_.kafka.topic_detections, std::move(index), embed_dim);
     GstPad* tracker_src = gst_element_get_static_pad(tracker_, "src");
@@ -151,6 +154,34 @@ void Pipeline::build() {
         gst_object_unref(tracker_src);
         throw std::runtime_error("DetectionProbe install failed");
     }
+
+    // ---- snapshot tap (spec §7.3) — same pad, second probe -----------------
+    if (cfg_.snapshot.enabled) {
+        SnapshotTapCfg tap_cfg{
+            /*enabled*/            true,
+            /*jpeg_quality*/       cfg_.snapshot.jpeg_quality_ring,
+            /*downscale_to_width*/ cfg_.snapshot.ring_downscale_to_width,
+        };
+        snapshot_tap_ = std::make_unique<SnapshotTap>(std::move(tap_cfg), tap_index);
+        if (snapshot_tap_->install(tracker_src) == 0) {
+            gst_object_unref(tracker_src);
+            throw std::runtime_error("SnapshotTap install failed");
+        }
+
+        SnapshotConsumerCfg cons_cfg{
+            /*enabled*/         true,
+            /*brokers*/         cfg_.kafka.brokers,
+            /*group_id*/        cfg_.snapshot.group_id,
+            /*topic_requests*/  cfg_.snapshot.topic_requests,
+            /*topic_responses*/ cfg_.snapshot.topic_responses,
+            /*output_dir*/      cfg_.snapshot.output_dir,
+            /*jpeg_quality*/    cfg_.snapshot.jpeg_quality_crop,
+            /*poll_timeout_ms*/ cfg_.snapshot.poll_timeout_ms,
+        };
+        snapshot_consumer_ = std::make_unique<SnapshotConsumer>(
+            std::move(cons_cfg), producer_, *snapshot_tap_);
+    }
+
     gst_object_unref(tracker_src);
 
     // ---- bus handler -------------------------------------------------------
@@ -255,10 +286,19 @@ bool Pipeline::start() {
         g_printerr("[pipeline] failed to set PLAYING\n");
         return false;
     }
+    if (snapshot_consumer_) {
+        try {
+            snapshot_consumer_->start();
+        } catch (const std::exception& e) {
+            g_printerr("[pipeline] snapshot consumer start failed: %s\n", e.what());
+            return false;
+        }
+    }
     return true;
 }
 
 void Pipeline::stop() {
+    if (snapshot_consumer_) snapshot_consumer_->stop();
     if (pipeline_) {
         gst_element_set_state(pipeline_, GST_STATE_NULL);
         gst_object_unref(pipeline_);

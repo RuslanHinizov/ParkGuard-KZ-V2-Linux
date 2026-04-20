@@ -39,6 +39,21 @@ health:
   bind: "0.0.0.0"
   port: 9100
 
+# Snapshot subsystem (spec §7.3, Adım 8). Enable once Kafka has the
+# `snapshot_requests` / `snapshot_responses` topics and `/shared/snapshots`
+# is mounted into the container. `output_dir` is where the C++ consumer
+# writes JPEGs; the Python snapshot-consumer service then uploads to MinIO.
+snapshot:
+  enabled: false
+  jpeg_quality_ring: 80          # ring-buffer full-frame JPEG quality
+  jpeg_quality_crop: 85          # bbox re-crop JPEG quality
+  ring_downscale_to_width: 0     # 0 = keep original; 1280 for bandwidth-constrained hosts
+  topic_requests:  "snapshot_requests"
+  topic_responses: "snapshot_responses"
+  group_id:        "deepstream-snapshot"
+  output_dir:      "/shared/snapshots"
+  poll_timeout_ms: 500
+
 cameras:
   - id: "cam_01"
     rtsp_url: "rtsp://demo:demo@192.168.1.10:554/stream1"
