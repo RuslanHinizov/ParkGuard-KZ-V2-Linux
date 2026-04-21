@@ -16,6 +16,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { OperatorNameModal } from "@/components/OperatorNameModal";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { CamerasPage } from "@/pages/CamerasPage";
+import { ZonesPage } from "@/pages/ZonesPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { useOperatorStore } from "@/stores/operatorStore";
 
@@ -41,15 +42,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/cameras" element={<CamerasPage />} />
-            <Route
-              path="/zones"
-              element={
-                <PlaceholderPage
-                  title="Аймақтар / Зоны"
-                  subtitle="Fabric.js полигон редакторы — Adım 15"
-                />
-              }
-            />
+            <Route path="/zones" element={<ZonesPage />} />
             <Route
               path="/violations"
               element={

@@ -44,12 +44,20 @@ export interface Camera {
   updated_at: string;
 }
 
+export type ZoneType = "no_parking" | "tow_away" | "restricted";
+
+export interface PolygonPoint {
+  x: number;
+  y: number;
+}
+
 export interface Zone {
   id: number;
   camera_id: string;
   name: string;
-  polygon_wkt: string;
-  zone_type: string;
+  zone_type: ZoneType;
+  /** Points returned by the server (WKT closing duplicate already stripped). */
+  polygon: PolygonPoint[];
   threshold_seconds: number;
   exit_confirm_seconds: number;
   cooldown_seconds: number;
@@ -58,6 +66,28 @@ export interface Zone {
   created_by?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ZoneCreate {
+  name: string;
+  zone_type?: ZoneType;
+  polygon: PolygonPoint[];
+  threshold_seconds?: number;
+  exit_confirm_seconds?: number;
+  cooldown_seconds?: number;
+  color_hex?: string;
+  enabled?: boolean;
+}
+
+export interface ZoneUpdate {
+  name?: string;
+  zone_type?: ZoneType;
+  polygon?: PolygonPoint[];
+  threshold_seconds?: number;
+  exit_confirm_seconds?: number;
+  cooldown_seconds?: number;
+  color_hex?: string;
+  enabled?: boolean;
 }
 
 export type ViolationStatus = "pending" | "approved" | "disputed" | "card_issued";
@@ -92,6 +122,33 @@ export const cameras = {
 
   get: (id: string) =>
     apiClient.get<Camera>(`/cameras/${id}`).then((r) => r.data),
+};
+
+// ---- Zones ----
+export const zones = {
+  /** List all zones for a camera (includes disabled). */
+  listForCamera: (cameraId: string) =>
+    apiClient
+      .get<Zone[]>(`/cameras/${cameraId}/zones`)
+      .then((r) => r.data),
+
+  /** Create a zone under a camera. */
+  create: (cameraId: string, body: ZoneCreate) =>
+    apiClient
+      .post<Zone>(`/cameras/${cameraId}/zones`, body)
+      .then((r) => r.data),
+
+  /** Fetch a single zone by id. */
+  get: (zoneId: number) =>
+    apiClient.get<Zone>(`/zones/${zoneId}`).then((r) => r.data),
+
+  /** Replace zone fields (partial update). */
+  update: (zoneId: number, body: ZoneUpdate) =>
+    apiClient.put<Zone>(`/zones/${zoneId}`, body).then((r) => r.data),
+
+  /** Hard-delete a zone. */
+  remove: (zoneId: number) =>
+    apiClient.delete(`/zones/${zoneId}`),
 };
 
 // ---- Violations ----
