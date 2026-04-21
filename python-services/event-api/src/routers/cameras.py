@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -238,3 +239,80 @@ async def delete_camera(
     )
     await session.commit()
     logger.info("camera_deleted", camera_id=camera_id, operator=request.state.operator_name)
+
+
+# --------------------------------------------------------------------------- #
+# MJPEG live stream proxy  (spec §11 — Adım 14)
+# --------------------------------------------------------------------------- #
+_MJPEG_TIMEOUT = 30.0   # connect + read timeout seconds
+
+
+@router.get(
+    "/{camera_id}/stream",
+    response_class=StreamingResponse,
+    responses={
+        200: {"content": {"multipart/x-mixed-replace": {}}},
+        404: {"description": "Camera not found"},
+        503: {"description": "Camera has no MJPEG URL configured (config.mjpeg_url)"},
+        502: {"description": "Could not connect to camera MJPEG source"},
+    },
+    tags=["cameras"],
+    summary="Live MJPEG proxy",
+)
+async def mjpeg_stream(
+    camera_id: str,
+    session: "AsyncSession" = Depends(get_session),
+) -> StreamingResponse:
+    """
+    Proxy the MJPEG live feed from the camera to the dashboard.
+
+    The MJPEG source URL is taken from `camera.config["mjpeg_url"]`.
+    Many IP cameras expose native MJPEG on `http://<ip>/mjpeg`; for
+    RTSP-only cameras use go2rtc / mediamtx as a transcoder and store
+    its HTTP stream URL in config.
+
+    The response is streamed chunk-by-chunk so the browser can display
+    it as a live `<img src="/api/v1/cameras/{id}/stream">`.
+    """
+    import httpx  # noqa: PLC0415
+
+    row = await _get_or_404(session, camera_id)
+    mjpeg_url: str | None = (row.config or {}).get("mjpeg_url")  # type: ignore[union-attr]
+    if not mjpeg_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Camera '{camera_id}' has no mjpeg_url in config",
+        )
+
+    # Determine the content-type from the upstream response.
+    async def _stream():  # type: ignore[return]
+        try:
+            async with httpx.AsyncClient(timeout=_MJPEG_TIMEOUT) as client:
+                async with client.stream("GET", mjpeg_url) as resp:
+                    if resp.status_code != 200:
+                        logger.warning(
+                            "mjpeg_upstream_error",
+                            camera_id=camera_id,
+                            status=resp.status_code,
+                        )
+                        return
+                    async for chunk in resp.aiter_bytes(chunk_size=4096):
+                        yield chunk
+        except httpx.ConnectError as exc:
+            logger.warning("mjpeg_connect_failed", camera_id=camera_id, error=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mjpeg_stream_error", camera_id=camera_id, error=str(exc))
+
+    # Peek at the upstream Content-Type to forward it faithfully.
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as probe:
+            head = await probe.head(mjpeg_url)
+            ct = head.headers.get("content-type", "multipart/x-mixed-replace; boundary=frame")
+    except Exception:  # noqa: BLE001
+        ct = "multipart/x-mixed-replace; boundary=frame"
+
+    return StreamingResponse(
+        _stream(),
+        media_type=ct,
+        headers={"Cache-Control": "no-cache, no-store"},
+    )

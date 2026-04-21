@@ -15,6 +15,7 @@ import { Routes, Route } from "react-router-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { OperatorNameModal } from "@/components/OperatorNameModal";
 import { DashboardPage } from "@/pages/DashboardPage";
+import { CamerasPage } from "@/pages/CamerasPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { useOperatorStore } from "@/stores/operatorStore";
 
@@ -39,15 +40,7 @@ export default function App() {
         <main className="flex flex-1 flex-col overflow-y-auto bg-gray-50">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
-            <Route
-              path="/cameras"
-              element={
-                <PlaceholderPage
-                  title="Камералар / Камеры"
-                  subtitle="MJPEG тікелей берілісі — Adım 14"
-                />
-              }
-            />
+            <Route path="/cameras" element={<CamerasPage />} />
             <Route
               path="/zones"
               element={
