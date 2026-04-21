@@ -34,7 +34,7 @@ from shared.schemas import DetectionMessage
 from src.active_registry import ActiveViolationRegistry
 from src.cvi_manager import CVIManager
 from src.health import HealthServer
-from src.metrics import DETECTIONS_CONSUMED, MESSAGES_FAILED, UP
+from src.metrics import CVI_ACTIVE, CVI_EVICTIONS, DETECTIONS_CONSUMED, MESSAGES_FAILED, UP
 from src.observation import Observation
 from src.ocr_results_consumer import OCRResultsConsumer
 from src.plate_ocr_requester import PlateOCRRequester
@@ -133,7 +133,9 @@ class Runtime:
                 await asyncio.sleep(interval_s)
                 evicted = self.cvi_manager.evict_stale(datetime.now(tz=timezone.utc))
                 if evicted:
+                    CVI_EVICTIONS.inc(evicted)
                     logger.info("cvi_eviction_cycle", evicted=evicted)
+                CVI_ACTIVE.set(self.cvi_manager.size())
         except asyncio.CancelledError:
             pass
 

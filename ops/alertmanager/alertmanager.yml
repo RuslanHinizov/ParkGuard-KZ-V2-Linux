@@ -1,0 +1,81 @@
+# ops/alertmanager/alertmanager.yml
+#
+# Alertmanager routing for ParkGuard KZ.
+# Fill in the receiver details (webhook URL / SMTP) before deploying.
+# The default inhibition rule suppresses warnings when a critical alert
+# fires for the same service so on-call responders see only the root cause.
+#
+# Spec §17: LAN-only deployment. Alertmanager listens on port 9093;
+# only accessible within the Docker network or via SSH tunnel.
+
+global:
+  # How long to wait before resending an unresolved alert.
+  resolve_timeout: 5m
+
+  # SMTP (fill in for email notifications)
+  # smtp_smarthost: 'smtp.example.com:587'
+  # smtp_from: 'parkguard-alerts@example.com'
+  # smtp_auth_username: 'parkguard-alerts@example.com'
+  # smtp_auth_password: '<password>'
+
+route:
+  # Default receiver for all unmatched alerts.
+  receiver: ops-webhook
+  group_by: [alertname, service]
+  group_wait:      30s   # wait before sending initial notification
+  group_interval:  5m    # how long to wait before re-notifying a group
+  repeat_interval: 4h    # re-notify if still firing after this duration
+
+  routes:
+    # Critical alerts → immediate notification (no group wait).
+    - match:
+        severity: critical
+      receiver: ops-webhook
+      group_wait: 0s
+      repeat_interval: 1h
+
+    # Warning alerts → grouped with a 1-min wait.
+    - match:
+        severity: warning
+      receiver: ops-webhook
+      group_wait: 1m
+      repeat_interval: 6h
+
+    # Info/deployment annotations → silent receiver (no alert).
+    - match:
+        severity: info
+      receiver: blackhole
+
+inhibit_rules:
+  # If a service is critically down, suppress its own warning alerts.
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: [service]
+
+receivers:
+  # ── Webhook receiver ─────────────────────────────────────────────────── #
+  # Replace the URL with your Slack incoming webhook, Teams webhook,
+  # or a custom HTTP endpoint.
+  - name: ops-webhook
+    webhook_configs:
+      - url: '${ALERTMANAGER_WEBHOOK_URL:-http://localhost:5001/alerts}'
+        send_resolved: true
+        http_config:
+          # Uncomment and add a bearer token if the endpoint requires auth.
+          # bearer_token: '<token>'
+
+  # ── Email receiver (uncomment and configure) ─────────────────────────── #
+  # - name: ops-email
+  #   email_configs:
+  #     - to: 'ops@example.com'
+  #       subject: '[ParkGuard] {{ .GroupLabels.alertname }} — {{ .Status }}'
+  #       html: |
+  #         <p>{{ range .Alerts }}
+  #           <b>{{ .Annotations.summary }}</b><br>
+  #           {{ .Annotations.description }}
+  #         {{ end }}</p>
+
+  # ── Silent receiver (absorbs info alerts) ────────────────────────────── #
+  - name: blackhole

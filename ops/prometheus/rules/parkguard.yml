@@ -1,0 +1,175 @@
+# ops/prometheus/rules/parkguard.yml
+#
+# ParkGuard KZ — alerting rules.
+# Severity levels follow Adım 17 specification:
+#   critical — page immediately (SMS/PagerDuty)
+#   warning  — Slack/email notification
+#   info     — dashboard annotation only
+
+groups:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Service availability
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: parkguard.availability
+    interval: 30s
+    rules:
+
+      - alert: EventApiDown
+        expr: parkguard_event_api_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: event-api
+        annotations:
+          summary: "event-api is down"
+          description: >
+            parkguard_event_api_up has been 0 for more than 1 minute.
+            REST and WebSocket endpoints are unavailable.
+
+      - alert: ViolationServiceDown
+        expr: parkguard_violation_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: violation-service
+        annotations:
+          summary: "violation-service is down"
+          description: >
+            violation-service has been offline for > 1 minute.
+            New violations will not be detected.
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Detection pipeline
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: parkguard.pipeline
+    interval: 30s
+    rules:
+
+      - alert: DetectionThroughputDrop
+        expr: >
+          rate(parkguard_detections_consumed_total[5m]) == 0
+          and parkguard_violation_up == 1
+        for: 3m
+        labels:
+          severity: warning
+          service: violation-service
+        annotations:
+          summary: "No detections received for 3 minutes"
+          description: >
+            violation-service is running but has not received any objects
+            from the DeepStream pipeline for 3 minutes.
+            Check the Kafka `detections` topic and the DeepStream container.
+
+      - alert: HighMessageFailureRate
+        expr: >
+          rate(parkguard_violation_messages_failed_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: violation-service
+        annotations:
+          summary: "High detection message failure rate (>0.1/s)"
+          description: >
+            More than 0.1 detection messages per second are failing
+            schema validation or processing. Check violation-service logs.
+
+      - alert: CVICountHigh
+        expr: parkguard_cvi_active > 500
+        for: 5m
+        labels:
+          severity: warning
+          service: violation-service
+        annotations:
+          summary: "CVI registry unusually large (>500 entries)"
+          description: >
+            The in-memory CVI registry contains {{ $value }} entries.
+            This may indicate a memory leak or very high camera throughput.
+            Review eviction parameters (ACTIVE_CVI_TTL_SECONDS).
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # API performance
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: parkguard.api
+    interval: 30s
+    rules:
+
+      - alert: ApiHighErrorRate
+        expr: >
+          (
+            rate(http_requests_total{status=~"5.."}[5m])
+            /
+            rate(http_requests_total[5m])
+          ) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          service: event-api
+        annotations:
+          summary: "event-api HTTP 5xx error rate > 5%"
+          description: >
+            More than 5% of HTTP requests are returning 5xx status codes.
+            {{ $value | humanizePercentage }} of requests failing in the last 5m.
+
+      - alert: ApiSlowResponses
+        expr: >
+          histogram_quantile(0.99,
+            rate(http_request_duration_seconds_bucket[5m])
+          ) > 2.0
+        for: 3m
+        labels:
+          severity: warning
+          service: event-api
+        annotations:
+          summary: "event-api p99 latency > 2s"
+          description: >
+            The 99th percentile HTTP response time is {{ $value }}s.
+            Expected < 500ms for CRUD endpoints (spec §11).
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Host resources
+  # ──────────────────────────────────────────────────────────────────────────
+  - name: parkguard.host
+    interval: 60s
+    rules:
+
+      - alert: HostHighCPU
+        expr: >
+          (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: host
+        annotations:
+          summary: "Host CPU usage > 85%"
+          description: >
+            CPU usage has been above 85% for 5 minutes ({{ $value | printf "%.1f" }}%).
+            DeepStream + Python services are resource-heavy; check GPU offloading.
+
+      - alert: HostLowDisk
+        expr: >
+          (node_filesystem_avail_bytes{mountpoint="/"} /
+           node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          service: host
+        annotations:
+          summary: "Root filesystem < 15% free"
+          description: >
+            Only {{ $value | printf "%.1f" }}% of disk space is free on /.
+            Check snapshot storage growth (MinIO) and Kafka log retention.
+
+      - alert: HostLowMemory
+        expr: >
+          (node_memory_MemAvailable_bytes /
+           node_memory_MemTotal_bytes) * 100 < 10
+        for: 3m
+        labels:
+          severity: critical
+          service: host
+        annotations:
+          summary: "Available memory < 10%"
+          description: >
+            Only {{ $value | printf "%.1f" }}% of RAM is available.
+            This will cause OOM kills. Check per-service memory limits.

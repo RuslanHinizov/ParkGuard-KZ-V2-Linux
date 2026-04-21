@@ -53,7 +53,20 @@ OCR_RESULTS_APPLIED = Counter(
     labelnames=("outcome",),  # stabilised | vote_only | no_cvi | invalid
 )
 
+CVI_ACTIVE = Gauge(
+    "parkguard_cvi_active",
+    "Number of CVI records currently held in the in-memory registry "
+    "(across all cameras). Updated after each eviction cycle.",
+)
+
+CVI_EVICTIONS = Counter(
+    "parkguard_cvi_evictions_total",
+    "CVIs removed by the periodic idle-timeout eviction loop.",
+)
+
 __all__ = [
+    "CVI_ACTIVE",
+    "CVI_EVICTIONS",
     "DETECTIONS_CONSUMED",
     "DUPLICATES_PREVENTED",
     "MESSAGES_FAILED",

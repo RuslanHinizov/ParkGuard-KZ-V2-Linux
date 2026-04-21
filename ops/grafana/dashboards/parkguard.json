@@ -1,0 +1,511 @@
+{
+  "__inputs": [],
+  "__requires": [
+    {"type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0"},
+    {"type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0"},
+    {"type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0"}
+  ],
+  "id": null,
+  "uid": "parkguard-main",
+  "title": "ParkGuard KZ — Main Dashboard",
+  "description": "Violations pipeline, API health, CVI state, and host resources",
+  "tags": ["parkguard", "prod"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "schemaVersion": 38,
+  "version": 1,
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "🚗 Service status",
+      "collapsed": false,
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "event-api",
+      "gridPos": {"x": 0, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "parkguard_event_api_up", "legendFormat": "up", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "violation-service",
+      "gridPos": {"x": 4, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "parkguard_violation_up", "legendFormat": "up", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}
+          ],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}
+        }
+      }
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active CVIs",
+      "gridPos": {"x": 8, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "parkguard_cvi_active", "legendFormat": "CVIs", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 100}, {"color": "red", "value": 500}]
+          }
+        }
+      }
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Violations / min (5m avg)",
+      "gridPos": {"x": 12, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sum(rate(parkguard_violations_created_total[5m])) * 60", "legendFormat": "viol/min", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10}]}
+        }
+      }
+    },
+
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "WS clients",
+      "gridPos": {"x": 16, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "parkguard_event_api_ws_connections_active", "legendFormat": "clients", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}
+        }
+      }
+    },
+
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Detections / s (5m avg)",
+      "gridPos": {"x": 20, "y": 1, "w": 4, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{"expr": "sum(rate(parkguard_detections_consumed_total[5m]))", "legendFormat": "det/s", "refId": "A"}],
+      "options": {
+        "reduceOptions": {"calcs": ["lastNotNull"]},
+        "orientation": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "blue", "value": null}]}
+        }
+      }
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "📋 Violations pipeline",
+      "collapsed": false,
+      "gridPos": {"x": 0, "y": 5, "w": 24, "h": 1}
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Violations created / min — by camera",
+      "gridPos": {"x": 0, "y": 6, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (camera) (rate(parkguard_violations_created_total[2m])) * 60",
+          "legendFormat": "{{camera}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "custom": {"lineWidth": 2, "fillOpacity": 10}}
+      }
+    },
+
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Detections consumed / s — by camera",
+      "gridPos": {"x": 12, "y": 6, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (camera) (rate(parkguard_detections_consumed_total[1m]))",
+          "legendFormat": "{{camera}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "custom": {"lineWidth": 2, "fillOpacity": 10}}
+      }
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "State transitions / s",
+      "gridPos": {"x": 0, "y": 14, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (from_state, to_state) (rate(parkguard_state_transitions_total[2m]))",
+          "legendFormat": "{{from_state}}→{{to_state}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "custom": {"lineWidth": 1, "fillOpacity": 5}}
+      }
+    },
+
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "OCR results applied / s — by outcome",
+      "gridPos": {"x": 12, "y": 14, "w": 12, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(parkguard_ocr_results_applied_total[2m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "custom": {"lineWidth": 1}}
+      }
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "🌐 event-api HTTP",
+      "collapsed": false,
+      "gridPos": {"x": 0, "y": 20, "w": 24, "h": 1}
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "HTTP request rate / s — by handler",
+      "gridPos": {"x": 0, "y": 21, "w": 12, "h": 7},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (handler) (rate(http_requests_total{job=\"event-api\"}[2m]))",
+          "legendFormat": "{{handler}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "reqps", "custom": {"lineWidth": 1, "fillOpacity": 5}}
+      }
+    },
+
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "HTTP latency — p50 / p95 / p99",
+      "gridPos": {"x": 12, "y": 21, "w": 12, "h": 7},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"event-api\"}[2m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"event-api\"}[2m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"event-api\"}[2m])))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "s", "custom": {"lineWidth": 2}},
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "p99"}, "properties": [{"id": "custom.lineStyle", "value": {"fill": "dash"}}]}
+        ]
+      }
+    },
+
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "HTTP 5xx error rate",
+      "gridPos": {"x": 0, "y": 28, "w": 12, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"event-api\",status=~\"5..\"}[2m]))",
+          "legendFormat": "5xx/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"lineWidth": 2, "fillOpacity": 20},
+          "color": {"mode": "fixed", "fixedColor": "red"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.1}]}
+        }
+      }
+    },
+
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Duplicate violations prevented / s",
+      "gridPos": {"x": 12, "y": 28, "w": 12, "h": 5},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum by (layer) (rate(parkguard_duplicates_prevented_total[2m]))",
+          "legendFormat": "{{layer}}",
+          "refId": "A"
+        }
+      ],
+      "options": {"tooltip": {"mode": "multi"}, "legend": {"displayMode": "list", "placement": "bottom"}},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "custom": {"lineWidth": 1}}
+      }
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "🖥 Host resources",
+      "collapsed": false,
+      "gridPos": {"x": 0, "y": 33, "w": 24, "h": 1}
+    },
+
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "CPU usage %",
+      "gridPos": {"x": 0, "y": 34, "w": 8, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[2m]))) * 100",
+          "legendFormat": "CPU %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "custom": {"lineWidth": 2, "fillOpacity": 15},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "orange", "value": 70},
+            {"color": "red", "value": 85}
+          ]}
+        }
+      }
+    },
+
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Memory usage",
+      "gridPos": {"x": 8, "y": 34, "w": 8, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "used",
+          "refId": "A"
+        },
+        {
+          "expr": "node_memory_MemTotal_bytes",
+          "legendFormat": "total",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "bytes", "custom": {"lineWidth": 2, "fillOpacity": 10}}
+      }
+    },
+
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Disk I/O — read / write (bytes/s)",
+      "gridPos": {"x": 16, "y": 34, "w": 8, "h": 6},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "expr": "sum(rate(node_disk_read_bytes_total[2m]))",
+          "legendFormat": "read",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(node_disk_written_bytes_total[2m]))",
+          "legendFormat": "write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "Bps", "custom": {"lineWidth": 1}}
+      }
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "📄 Logs (Loki)",
+      "collapsed": false,
+      "gridPos": {"x": 0, "y": 40, "w": 24, "h": 1}
+    },
+
+    {
+      "id": 41,
+      "type": "logs",
+      "title": "event-api logs",
+      "gridPos": {"x": 0, "y": 41, "w": 12, "h": 8},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "expr": "{service=\"event-api\"} | json",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    },
+
+    {
+      "id": 42,
+      "type": "logs",
+      "title": "violation-service logs",
+      "gridPos": {"x": 12, "y": 41, "w": 12, "h": 8},
+      "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+      "targets": [
+        {
+          "expr": "{service=\"violation-service\"} | json",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "dedupStrategy": "none",
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      }
+    }
+
+  ],
+
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "pluginId": "prometheus",
+        "label": "Prometheus",
+        "current": {"text": "Prometheus", "value": "Prometheus"},
+        "hide": 2
+      },
+      {
+        "name": "DS_LOKI",
+        "type": "datasource",
+        "pluginId": "loki",
+        "label": "Loki",
+        "current": {"text": "Loki", "value": "Loki"},
+        "hide": 2
+      }
+    ]
+  }
+}

@@ -19,13 +19,15 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from shared import db, kafka_client, minio_client, redis_client
 from shared.config import settings
 from shared.logging import configure_logging, get_logger, new_trace_id
 from shared.schemas import HealthStatus
+from src.metrics import EVENT_API_UP, WS_CONNECTIONS_ACTIVE
 from src.middleware.operator import OperatorContextMiddleware
 from src.routers import cameras as cameras_router
 from src.routers import violations as violations_router
@@ -58,17 +60,33 @@ async def lifespan(app: FastAPI) -> "AsyncIterator[None]":
 
     # Start Kafka→WebSocket fanout task for the violations stream.
     fanout_task = asyncio.create_task(_violations_fanout(), name="ws-fanout")
+    # Start WS connections gauge updater.
+    ws_gauge_task = asyncio.create_task(_ws_gauge_loop(), name="ws-gauge")
+
+    EVENT_API_UP.set(1)
 
     try:
         yield
     finally:
+        EVENT_API_UP.set(0)
         fanout_task.cancel()
+        ws_gauge_task.cancel()
         with suppress(asyncio.CancelledError):
-            await fanout_task
+            await asyncio.gather(fanout_task, ws_gauge_task, return_exceptions=True)
         logger.info("event_api_stopping")
         await kafka_client.close_producer()
         await redis_client.close_redis()
         await db.dispose_engine()
+
+
+async def _ws_gauge_loop() -> None:
+    """Update the WS connections gauge every 5 s without blocking the loop."""
+    try:
+        while True:
+            WS_CONNECTIONS_ACTIVE.set(ws_manager.connection_count)
+            await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        pass
 
 
 async def _violations_fanout() -> None:
@@ -158,14 +176,13 @@ def create_app() -> FastAPI:
             timestamp=datetime.now(timezone.utc),
         )
 
-    @app.get("/metrics", tags=["ops"])
-    async def metrics() -> Response:
-        body = (
-            "# HELP parkguard_event_api_up 1 if the event-api is up.\n"
-            "# TYPE parkguard_event_api_up gauge\n"
-            "parkguard_event_api_up 1\n"
-        )
-        return Response(content=body, media_type="text/plain; version=0.0.4")
+    # --- Prometheus metrics — auto-instrumented via middleware + /metrics ---
+    # Exclude cheap ops routes to keep cardinality low.
+    Instrumentator(
+        should_group_status_codes=False,
+        excluded_handlers=["/healthz", "/readyz", "/metrics"],
+        body_handlers=[],
+    ).instrument(app).expose(app, endpoint="/metrics", tags=["ops"])
 
     # --- Feature routers ---------------------------------------------------
     app.include_router(cameras_router.router)

@@ -1,0 +1,86 @@
+# ops/prometheus/prometheus.yml
+#
+# Prometheus scrape configuration for ParkGuard KZ.
+# Deployed inside Docker network parkguard_net; hostnames match
+# docker-compose service names.
+#
+# Scrape intervals are intentionally conservative for a LAN deployment:
+#   • 15s default — balances freshness vs. storage growth
+#   • Node/cAdvisor — 30s is adequate for system-level alerts
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: parkguard-kz
+    environment: prod
+
+# Load alerting rules from a dedicated directory so rules can be
+# added/edited without touching this file.
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# ──────────────────────────────────────────────────────────────────────────── #
+# Scrape jobs
+# ──────────────────────────────────────────────────────────────────────────── #
+scrape_configs:
+
+  # Prometheus itself
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
+
+  # ── event-api (FastAPI + prometheus-fastapi-instrumentator) ─────────────── #
+  - job_name: event-api
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: [event-api:8000]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: event-api
+
+  # ── violation-service (aiohttp /metrics, port 9200) ─────────────────────── #
+  - job_name: violation-service
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: [violation-service:9200]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: violation-service
+
+  # ── node-exporter (host OS metrics via Docker) ───────────────────────────── #
+  - job_name: node-exporter
+    scrape_interval: 30s
+    static_configs:
+      - targets: [node-exporter:9100]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: parkguard-host
+
+  # ── cAdvisor (container resource metrics) ────────────────────────────────── #
+  - job_name: cadvisor
+    scrape_interval: 30s
+    static_configs:
+      - targets: [cadvisor:8080]
+    # Drop container metrics for infra containers we don't need in the
+    # ParkGuard Grafana dashboard (reduces cardinality).
+    metric_relabel_configs:
+      - source_labels: [container_label_com_docker_compose_service]
+        regex: (zookeeper|kafka-init|minio-init)
+        action: drop
+
+  # ── PostgreSQL exporter (optional — enable when deployed) ───────────────── #
+  # - job_name: postgres-exporter
+  #   static_configs:
+  #     - targets: [postgres-exporter:9187]

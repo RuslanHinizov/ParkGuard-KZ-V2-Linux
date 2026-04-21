@@ -402,7 +402,169 @@ services:
               capabilities: [gpu, video]
     logging: *common-logging
 
+  # ==========================================================================
+  # OBSERVABILITY (Adım 17)
+  # ==========================================================================
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: parkguard_prometheus
+    hostname: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=20GB
+      - --web.enable-lifecycle        # POST /-/reload for config hot-reload
+      - --web.enable-admin-api
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      event-api:
+        condition: service_healthy
+      violation-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: parkguard_grafana
+    hostname: grafana
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-parkguard}
+      GF_SERVER_ROOT_URL:         http://localhost:3000
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_FEATURE_TOGGLES_ENABLE:  "ngalert"
+      # Allow anonymous read-only access on the LAN dashboard.
+      GF_AUTH_ANONYMOUS_ENABLED:  "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./ops/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./ops/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: parkguard_loki
+    hostname: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./ops/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [parkguard_net]
+    logging: *common-logging
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: parkguard_alertmanager
+    hostname: alertmanager
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    volumes:
+      - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    environment:
+      ALERTMANAGER_WEBHOOK_URL: ${ALERTMANAGER_WEBHOOK_URL:-http://localhost:5001/alerts}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9093/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: parkguard_node_exporter
+    hostname: node-exporter
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --no-collector.wifi
+      - --no-collector.hwmon
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|run)($|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host:ro,rslave
+    networks: [parkguard_net]
+    logging: *common-logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: parkguard_cadvisor
+    hostname: cadvisor
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    networks: [parkguard_net]
+    logging: *common-logging
+
   # ---- services below are scaffolded at later delivery steps ----
-  # violation-service, plate-service, snapshot-consumer,
-  # penalty-card-service, frontend, nginx,
-  # prometheus, grafana, loki, alertmanager, node-exporter
+  # plate-service, snapshot-consumer, penalty-card-service, frontend, nginx

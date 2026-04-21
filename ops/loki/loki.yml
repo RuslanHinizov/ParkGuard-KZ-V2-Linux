@@ -1,0 +1,81 @@
+# ops/loki/loki.yml
+#
+# Grafana Loki configuration for ParkGuard KZ (single-instance, LAN-only).
+# Structlog JSON emitted by Python services is collected by Promtail
+# (sidecar) or Docker log driver and ingested here.
+#
+# Spec §17: Loki is LAN-only; no auth required in this topology.
+# For a multi-node or public-facing deployment enable auth and TLS.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory:  /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+# ── Query / ingestion limits ─────────────────────────────────────────────── #
+limits_config:
+  # Allow queries spanning up to 30 days (spec §17 — 30-day retention)
+  max_query_length: 720h
+  # Reject lines larger than 256 KiB (base64-encoded embeddings are ~200 KiB)
+  max_line_size: 262144
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  # Label cardinality guard — structlog services emit camera_id / trace_id
+  # as log labels; limit to prevent runaway cardinality.
+  max_label_names_per_series: 15
+  retention_period: 720h  # 30 days
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/index
+    cache_location:         /loki/index_cache
+    cache_ttl:              24h
+  filesystem:
+    directory: /loki/chunks
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+
+# ── Ruler (optional alerting on logs) ────────────────────────────────────── #
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path:       /loki/rules_tmp
+  alertmanager_url: http://alertmanager:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+
+# ── Analytics (opt-out of Grafana telemetry) ─────────────────────────────── #
+analytics:
+  reporting_enabled: false

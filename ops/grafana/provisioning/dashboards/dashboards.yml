@@ -1,0 +1,17 @@
+# ops/grafana/provisioning/dashboards/dashboards.yml
+#
+# Grafana dashboard provider — scans /var/lib/grafana/dashboards for JSON
+# files and imports them on startup (and every 30 s thereafter).
+
+apiVersion: 1
+
+providers:
+  - name: ParkGuard
+    orgId: 1
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
