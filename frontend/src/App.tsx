@@ -17,6 +17,7 @@ import { OperatorNameModal } from "@/components/OperatorNameModal";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { CamerasPage } from "@/pages/CamerasPage";
 import { ZonesPage } from "@/pages/ZonesPage";
+import { ViolationsPage } from "@/pages/ViolationsPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { useOperatorStore } from "@/stores/operatorStore";
 
@@ -43,15 +44,7 @@ export default function App() {
             <Route path="/" element={<DashboardPage />} />
             <Route path="/cameras" element={<CamerasPage />} />
             <Route path="/zones" element={<ZonesPage />} />
-            <Route
-              path="/violations"
-              element={
-                <PlaceholderPage
-                  title="Бұзушылықтар / Нарушения"
-                  subtitle="Тізім + PDF жүктеу — Adım 16"
-                />
-              }
-            />
+            <Route path="/violations" element={<ViolationsPage />} />
             <Route
               path="/settings"
               element={
